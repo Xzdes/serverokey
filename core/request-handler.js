@@ -1,5 +1,4 @@
 // core/request-handler.js
-// Центральный обработчик запросов. Оркестратор.
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -13,10 +12,10 @@ class RequestHandler {
     }
 
     async handle(req, res) {
+        // ... (код до обработки 'action' без изменений) ...
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
 
-        // Отдача клиентского скрипта
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.join(process.cwd(), 'engine-client.js');
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
@@ -31,9 +30,8 @@ class RequestHandler {
         
         try {
             if (routeConfig.type === 'view') {
-                let html = this.renderer.renderView(routeConfig, this.dataManager.data);
-                html = html.replace('</body>', `<script src="/engine-client.js"></script></body>`);
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
+                const html = this.renderer.renderView(routeConfig, this.dataManager.data);
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html.replace('</body>', `<script src="/engine-client.js"></script></body>`));
             }
 
             if (routeConfig.type === 'action') {
@@ -47,8 +45,15 @@ class RequestHandler {
                     this.dataManager.updateAndSave(key, context[key]);
                 });
 
-                const updatedHtml = this.renderer.renderComponent(routeConfig.update, this.dataManager.data);
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(updatedHtml);
+                // --- ИСПРАВЛЕННАЯ ЛОГИКА ---
+                // 1. Рендерим компонент, получая и HTML, и стили
+                const { html, styles } = this.renderer.renderComponent(routeConfig.update, this.dataManager.data);
+                
+                // 2. Если есть стили, добавляем их в виде тега <style> перед HTML
+                const styleTag = styles.length > 0 ? `<style>\n${styles.join('\n')}\n</style>\n` : '';
+                const finalHtml = styleTag + html;
+
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
             }
         } catch (error) {
             console.error(`[Engine] Error processing route ${routeKey}:`, error);
