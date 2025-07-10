@@ -1,5 +1,5 @@
 // core/asset-loader.js
-// Кэширует в память actions и шаблоны компонентов.
+// Переписываем полностью. Он теперь должен правильно обрабатывать новую структуру компонентов.
 const fs = require('fs');
 const path = require('path');
 
@@ -23,14 +23,29 @@ class AssetLoader {
         }
         // Кэшируем components
         for (const componentName in this.manifest.components) {
-            const fileName = this.manifest.components[componentName];
-            const componentPath = path.join(this.appPath, 'app', 'components', fileName);
-            this.components[componentName] = fs.readFileSync(componentPath, 'utf-8');
+            const config = this.manifest.components[componentName];
+            
+            // Если значение - строка, это простой компонент (как mainLayout)
+            if(typeof config === 'string') {
+                 const componentPath = path.join(this.appPath, 'app', 'components', config);
+                 this.components[componentName] = {
+                     template: fs.readFileSync(componentPath, 'utf-8'),
+                     styles: {} // Нет стилей для простых компонентов
+                 };
+            } 
+            // Если это объект, это стилизованный компонент
+            else if (typeof config === 'object' && config.template) {
+                 const componentPath = path.join(this.appPath, 'app', 'components', config.template);
+                 this.components[componentName] = {
+                     template: fs.readFileSync(componentPath, 'utf-8'),
+                     styles: config.styles || {}
+                 };
+            }
         }
     }
 
     getAction(name) { return this.actions[name]; }
-    getComponentTemplate(name) { return this.components[name]; }
+    getComponent(name) { return this.components[name]; }
 }
 
 module.exports = { AssetLoader };

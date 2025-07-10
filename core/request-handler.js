@@ -1,4 +1,6 @@
 // core/request-handler.js
+// Переписываем полностью.
+
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -12,7 +14,6 @@ class RequestHandler {
     }
 
     async handle(req, res) {
-        // ... (код до обработки 'action' без изменений) ...
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
 
@@ -45,13 +46,14 @@ class RequestHandler {
                     this.dataManager.updateAndSave(key, context[key]);
                 });
 
-                // --- ИСПРАВЛЕННАЯ ЛОГИКА ---
-                // 1. Рендерим компонент, получая и HTML, и стили
-                const { html, styles } = this.renderer.renderComponent(routeConfig.update, this.dataManager.data);
+                const componentName = routeConfig.update;
+                const { html, styles } = this.renderer.renderComponent(componentName, this.dataManager.data);
                 
-                // 2. Если есть стили, добавляем их в виде тега <style> перед HTML
-                const styleTag = styles.length > 0 ? `<style>\n${styles.join('\n')}\n</style>\n` : '';
-                const finalHtml = styleTag + html;
+                // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+                // Мы больше не создаем внешнюю обертку.
+                // Отдаем только стили и сам HTML компонента.
+                const styleTag = styles.length > 0 ? `<style>\n${[...new Set(styles)].join('\n')}\n</style>` : '';
+                const finalHtml = `${styleTag}${html}`;
 
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
             }

@@ -6,14 +6,13 @@
     <title>Атомарная Касса</title>
     <style>
         body { font-family: sans-serif; display: flex; gap: 20px; padding: 20px; }
-        div { border: 1px solid #ccc; padding: 15px; border-radius: 8px; }
+        /* Убираем стили для div, т.к. они теперь управляются из manifest */
         button { cursor: pointer; padding: 5px 10px; }
         ul { padding-left: 20px; }
     </style>
 </head>
 <body>
-    <!-- ИСПОЛЬЗУЕМ СПЕЦИАЛЬНЫЙ ТЕГ, КОТОРЫЙ ПОЙМЕТ ДВИЖОК -->
-    <atom-inject into="receipt_placeholder"></atom-inject>
-    <atom-inject into="positions_placeholder"></atom-inject>
+    <atom-inject into="receipt"></atom-inject>
+    <atom-inject into="positionsList"></atom-inject>
 </body>
 </html>

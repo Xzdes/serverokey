@@ -1,5 +1,5 @@
 // core/renderer.js
-// ОКОНЧАТЕЛЬНАЯ ВЕРСИЯ. Используем правильный подход к парсингу.
+// Переписываем полностью.
 
 class Renderer {
     constructor(assetLoader) {
@@ -16,78 +16,73 @@ class Renderer {
             return value !== undefined ? value : '';
         });
     }
-
+    
     renderComponent(componentName, globalData) {
-        const template = this.assetLoader.getComponentTemplate(componentName);
-        if (!template) {
-            throw new Error(`Component template "${componentName}" not found.`);
+        const component = this.assetLoader.getComponent(componentName);
+        if (!component) {
+            throw new Error(`Component "${componentName}" not found.`);
         }
 
-        let processedHtml = this._renderTemplate(template, globalData);
+        let html = this._renderTemplate(component.template, globalData);
         const collectedStyles = [];
-
-        // Регулярное выражение, которое находит теги <atom:style>,
-        // не содержащие других <atom:style> внутри.
-        // Это ключ к обработке "изнутри наружу".
-        const leafAtomTagRegex = /<atom:style\s+((?:(?!<atom:style)[\s\S])+?)>(((?!<atom:style)[\s\S])*?)<\/atom:style>/g;
+        const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
         
-        while (leafAtomTagRegex.test(processedHtml)) {
-             processedHtml = processedHtml.replace(leafAtomTagRegex, (match, attrsString, innerContent) => {
-                const scopeId = `atom-${Math.random().toString(36).slice(2, 9)}`;
-                const allAttrs = {};
-                attrsString.replace(/([\w:-]+)="([^"]*)"/g, (_, key, value) => { allAttrs[key] = value; });
+        for (const selector in component.styles) {
+            const rules = component.styles[selector];
+            // Используем data-атрибут для уникальности
+            const targetSelector = selector === '#' ? `[data-component-id="${componentId}"]` : `[data-component-id="${componentId}"] ${selector}`;
+            
+            const staticRules = {}, dynamicRules = {};
 
-                const finalTag = allAttrs.tag || 'div';
-                const styleProps = {}, dynamicStyles = {}, htmlAttrs = {};
-
-                for (const key in allAttrs) {
-                    if (key === 'tag') continue;
-                    if (key.includes(':')) {
-                        const [state, prop] = key.split(':');
-                        if (!dynamicStyles[state]) dynamicStyles[state] = {};
-                        dynamicStyles[state][prop] = allAttrs[key];
-                    } else if (key.startsWith('atom-') || /^(id|class|name|value|type|for|placeholder|src|alt|href|target)$/.test(key)) {
-                        htmlAttrs[key] = allAttrs[key];
-                    } else {
-                        styleProps[key] = allAttrs[key];
-                    }
+            for (const prop in rules) {
+                if (prop.includes(':')) {
+                    const [state, cssProp] = prop.split(':');
+                    if (!dynamicRules[state]) dynamicRules[state] = {};
+                    dynamicRules[state][cssProp] = rules[prop];
+                } else {
+                    staticRules[prop] = rules[prop];
                 }
-
-                const inlineStyle = Object.entries(styleProps).map(([k, v]) => `${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${v}`).join(';');
-                
-                for (const state in dynamicStyles) {
-                    const selector = `[data-atom-id="${scopeId}"]:${state}`;
-                    const rules = Object.entries(dynamicStyles[state]).map(([k, v]) => `${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${v}`).join(';');
-                    collectedStyles.push(`${selector} { ${rules} }`);
-                }
-                
-                const attrsToRender = Object.entries(htmlAttrs).map(([k, v]) => `${k}="${v}"`).join(' ');
-                return `<${finalTag} data-atom-id="${scopeId}" style="${inlineStyle}" ${attrsToRender}>${innerContent}</${finalTag}>`;
-            });
+            }
+            if (Object.keys(staticRules).length > 0) {
+                 const staticCss = Object.entries(staticRules).map(([k,v]) => `${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${v}`).join(';');
+                 collectedStyles.push(`${targetSelector} { ${staticCss} }`);
+            }
+            for (const state in dynamicRules) {
+                const stateSelector = `${targetSelector}:${state}`;
+                const stateCss = Object.entries(dynamicRules[state]).map(([k,v]) => `${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${v}`).join(';');
+                collectedStyles.push(`${stateSelector} { ${stateCss} }`);
+            }
         }
         
-        return { html: processedHtml, styles: collectedStyles };
+        // Добавляем уникальный data-атрибут. ID больше не нужен здесь.
+        html = html.replace(/<([a-z0-9]+)/, `<$1 data-component-id="${componentId}"`);
+
+        return { html, styles: collectedStyles };
     }
 
     renderView(routeConfig, globalData) {
-        let layoutHtml = this.assetLoader.getComponentTemplate(routeConfig.layout);
+        const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
+        if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
+        
+        let layoutHtml = layoutComponent.template;
         const allStyles = [];
 
         layoutHtml = layoutHtml.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
-            const componentToInject = routeConfig.inject[placeholderName];
-            if (componentToInject) {
-                const { html, styles } = this.renderComponent(componentToInject, globalData);
+            const componentName = routeConfig.inject[placeholderName];
+            if (componentName) {
+                 // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+                const { html, styles } = this.renderComponent(componentName, globalData);
                 allStyles.push(...styles);
-                return html;
+                // Создаем обертку с ID для таргетинга
+                return `<div id="${componentName}-container">${html}</div>`;
             }
-            return `<!-- AtomEngine: Placeholder '${placeholderName}' not found in manifest -->`;
+            return `<!-- AtomEngine: Placeholder '${placeholderName}' not found -->`;
         });
         
         if (allStyles.length > 0) {
             const styleTag = `<style>\n${[...new Set(allStyles)].join('\n')}\n</style>`;
             layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
         }
-
         return layoutHtml;
     }
 }

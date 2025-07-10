@@ -5,7 +5,6 @@
       {{#each positions}}
       <li>
         <span>{{this.name}} ({{this.price}} руб.)</span>
-        <!-- Кнопка передаст id товара в теле запроса -->
         <button
           atom-action="POST /action/addItem"
           atom-target="#receipt-container"
