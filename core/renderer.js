@@ -1,5 +1,5 @@
 // core/renderer.js
-// ФИНАЛЬНАЯ ВЕРСИЯ 2.0. Исправлена логика парсинга атрибутов.
+// ОКОНЧАТЕЛЬНАЯ ВЕРСИЯ. Используем правильный подход к парсингу.
 
 class Renderer {
     constructor(assetLoader) {
@@ -25,10 +25,14 @@ class Renderer {
 
         let processedHtml = this._renderTemplate(template, globalData);
         const collectedStyles = [];
-        const atomTagRegex = /<atom:style\s+([^>]+?)>([\s\S]*?)<\/atom:style>/;
 
-        while (atomTagRegex.test(processedHtml)) {
-            processedHtml = processedHtml.replace(atomTagRegex, (match, attrsString, innerContent) => {
+        // Регулярное выражение, которое находит теги <atom:style>,
+        // не содержащие других <atom:style> внутри.
+        // Это ключ к обработке "изнутри наружу".
+        const leafAtomTagRegex = /<atom:style\s+((?:(?!<atom:style)[\s\S])+?)>(((?!<atom:style)[\s\S])*?)<\/atom:style>/g;
+        
+        while (leafAtomTagRegex.test(processedHtml)) {
+             processedHtml = processedHtml.replace(leafAtomTagRegex, (match, attrsString, innerContent) => {
                 const scopeId = `atom-${Math.random().toString(36).slice(2, 9)}`;
                 const allAttrs = {};
                 attrsString.replace(/([\w:-]+)="([^"]*)"/g, (_, key, value) => { allAttrs[key] = value; });
@@ -38,17 +42,13 @@ class Renderer {
 
                 for (const key in allAttrs) {
                     if (key === 'tag') continue;
-
-                    // --- ИСПРАВЛЕННАЯ ЛОГИКА ---
                     if (key.includes(':')) {
                         const [state, prop] = key.split(':');
                         if (!dynamicStyles[state]) dynamicStyles[state] = {};
                         dynamicStyles[state][prop] = allAttrs[key];
                     } else if (key.startsWith('atom-') || /^(id|class|name|value|type|for|placeholder|src|alt|href|target)$/.test(key)) {
-                        // Если это стандартный HTML атрибут или наш `atom-`
                         htmlAttrs[key] = allAttrs[key];
                     } else {
-                        // Все остальное считаем CSS-свойством для инлайн-стилей
                         styleProps[key] = allAttrs[key];
                     }
                 }
@@ -84,7 +84,7 @@ class Renderer {
         });
         
         if (allStyles.length > 0) {
-            const styleTag = `<style>\n${allStyles.join('\n')}\n</style>`;
+            const styleTag = `<style>\n${[...new Set(allStyles)].join('\n')}\n</style>`;
             layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
         }
 
