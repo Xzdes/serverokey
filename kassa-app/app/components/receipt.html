@@ -1,0 +1,22 @@
+<!-- Оборачиваем корневой элемент, чтобы применить к нему стили -->
+<atom:style tag="div" id="receipt-container" background-color="#f9f9f9" min-width="300px">
+    <h3>Чек</h3>
+    <ul>
+      {{#each receipt.items}}
+        <li>{{this.name}} - {{this.price}} руб.</li>
+      {{/each}}
+    </ul>
+    <hr>
+    <p><b>Итого: {{receipt.total}} руб.</b></p>
+    
+    <!-- И оборачиваем кнопку, чтобы стилизовать и ее! -->
+    <atom:style 
+      tag="button"
+      atom-action="POST /action/clearReceipt"
+      atom-target="#receipt-container"
+      background-color="#ffdddd"
+      hover:background-color="#ffbaba"
+    >
+      Очистить чек
+    </atom:style>
+</atom:style>

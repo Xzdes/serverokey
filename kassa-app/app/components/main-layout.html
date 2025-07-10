@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Атомарная Касса</title>
+    <style>
+        body { font-family: sans-serif; display: flex; gap: 20px; padding: 20px; }
+        div { border: 1px solid #ccc; padding: 15px; border-radius: 8px; }
+        button { cursor: pointer; padding: 5px 10px; }
+        ul { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <!-- ИСПОЛЬЗУЕМ СПЕЦИАЛЬНЫЙ ТЕГ, КОТОРЫЙ ПОЙМЕТ ДВИЖОК -->
+    <atom-inject into="receipt_placeholder"></atom-inject>
+    <atom-inject into="positions_placeholder"></atom-inject>
+</body>
+</html>

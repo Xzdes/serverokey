@@ -1,0 +1,21 @@
+<div>
+  <h3>Товары</h3>
+  <form>
+    <ul>
+      {{#each positions}}
+      <li>
+        <span>{{this.name}} ({{this.price}} руб.)</span>
+        <!-- Кнопка передаст id товара в теле запроса -->
+        <button
+          atom-action="POST /action/addItem"
+          atom-target="#receipt-container"
+          name="id"
+          value="{{this.id}}"
+        >
+          Добавить
+        </button>
+      </li>
+      {{/each}}
+    </ul>
+  </form>
+</div>
