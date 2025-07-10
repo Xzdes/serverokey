@@ -6,9 +6,6 @@
 *   **Контакт:** [xzdes@yandex.ru](mailto:xzdes@yandex.ru)
 *   **Репозиторий:** [https://github.com/Xzdes/serverokey](https://github.com/Xzdes/serverokey)
 
-![Пример работы приложения "Касса"](https://github.com/Xzdes/serverokey/raw/main/docs/kassa-app-demo.png)  
-*(Предполагается, что вы добавите скриншот вроде этого в папку `docs`)*
-
 ---
 
 ## 🎯 Философия: Защита от ошибок LLM
