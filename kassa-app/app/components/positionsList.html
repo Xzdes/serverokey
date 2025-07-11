@@ -1,8 +1,26 @@
+<!-- app/components/positionsList.html -->
 <div>
   <h3>Товары</h3>
+
+  <!-- Форма для поиска больше не нужна, т.к. input сам будет триггером -->
+  <div class="search-bar">
+    <input 
+      type="text" 
+      name="query" 
+      placeholder="Найти товар..." 
+      value="{{viewState.query}}"
+      
+      atom-action="POST /action/filterPositions"
+      atom-target="#positionsList-container"
+      atom-event="input"
+    >
+    <!-- Кнопка "Найти" больше не нужна -->
+  </div>
+
   <form>
     <ul>
-      {{#each positions}}
+      <!-- Итерируемся по отфильтрованному списку -->
+      {{#each viewState.filtered}}
       <li>
         <span>{{this.name}} ({{this.price}} руб.)</span>
         <button

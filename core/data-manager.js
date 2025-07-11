@@ -16,6 +16,15 @@ class DataManager {
         for (const key in this.manifestData) {
             this.load(key);
         }
+                
+        // --- НОВАЯ СЕКЦИЯ: ПОСТ-ИНИЦИАЛИЗАЦИЯ ---
+        // Это гарантирует, что viewState будет синхронизирован с positions при первом запуске.
+        if (this.data.viewState && this.data.positions && this.data.viewState.filtered.length === 0) {
+            console.log('[Engine] Initializing viewState.filtered from positions.all...');
+            this.data.viewState.filtered = JSON.parse(JSON.stringify(this.data.positions.all));
+            this.save('viewState');
+        }
+        // --- КОНЕЦ НОВОЙ СЕКЦИИ ---
     }
 
     load(key) {

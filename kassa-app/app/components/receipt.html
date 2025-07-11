@@ -1,9 +1,21 @@
-<!-- Простой и чистый HTML. ID будет добавлен движком. -->
+<!-- app/components/receipt.html -->
 <div>
     <h3>Чек</h3>
     <ul>
       {{#each receipt.items}}
-        <li>{{this.name}} - {{this.price}} руб.</li>
+        <li>
+          <span>{{this.name}} - {{this.price}} руб.</span>
+          <!-- Кнопка для удаления элемента -->
+          <button 
+            class="remove-btn"
+            atom-action="POST /action/removeItem"
+            atom-target="#receipt-container"
+            name="index"
+            value="{{@index}}"
+          >
+            ×
+          </button>
+        </li>
       {{/each}}
     </ul>
     <hr>

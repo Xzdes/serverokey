@@ -5,14 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Атомарная Касса</title>
     <style>
-        body { font-family: sans-serif; display: flex; gap: 20px; padding: 20px; }
-        /* Убираем стили для div, т.к. они теперь управляются из manifest */
-        button { cursor: pointer; padding: 5px 10px; }
-        ul { padding-left: 20px; }
+        /* Обновляем фон и основной шрифт */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+            display: flex; 
+            gap: 24px; 
+            padding: 24px;
+            background-color: #f0f2f5; /* Приятный светло-серый фон */
+            /* Добавляем выравнивание по верху, чтобы компоненты не растягивались по высоте */
+            align-items: flex-start;
+        }
+        button { 
+            cursor: pointer; 
+        }
+        ul { 
+            padding-left: 0;
+            list-style: none;
+        }
+
+        /* --- НОВЫЙ БЛОК ДЛЯ АДАПТИВНОСТИ --- */
+        /* Применяется, когда ширина экрана 800px или меньше */
+        @media (max-width: 800px) {
+            body {
+                /* Меняем направление flex-контейнера с горизонтального на вертикальное */
+                flex-direction: column;
+                /* Выравниваем элементы по центру колонки для лучшего вида на мобильных */
+                align-items: stretch; 
+            }
+        }
     </style>
 </head>
 <body>
-    <atom-inject into="receipt"></atom-inject>
     <atom-inject into="positionsList"></atom-inject>
+    <atom-inject into="receipt"></atom-inject>
+
 </body>
 </html>

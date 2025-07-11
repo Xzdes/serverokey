@@ -1,17 +1,99 @@
-/* Используем :host для стилизации корневого элемента */
+/* app/components/receipt.css */
+
+/* :host определяет основной контейнер компонента */
 :host {
-  border: 1px solid #ccc;
-  padding: 15px;
-  border-radius: 8px;
-  background-color: #f9f9f9;
-  min-width: 300px;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 350px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
 }
 
+/* Заголовок компонента */
+h3 {
+  margin: 0 0 16px;
+  color: #1a1a1a;
+  font-size: 1.25rem;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 12px;
+}
+
+/* Список товаров в чеке */
+ul {
+  padding-left: 0;
+  list-style: none;
+  margin: 0;
+  flex-grow: 1; /* Позволяет списку занимать все доступное место */
+}
+
+/* Каждый элемент списка */
+li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 0.95rem;
+}
+
+li:last-child {
+  border-bottom: none;
+}
+
+/* Горизонтальная линия */
+hr {
+  border: none;
+  border-top: 1px dashed #cccccc;
+  margin: 16px 0;
+}
+
+/* Итоговая сумма */
+p {
+  text-align: right;
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+/* Контейнер для кнопок внизу */
+div > div {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Кнопка "Очистить чек" */
 #clear-btn {
-  background-color: #ffdddd;
-  border: 1px solid #ffbaba;
+  background-color: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #cf1322;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
 }
 
 #clear-btn:hover {
-  background-color: #ffbaba;
+  background-color: #ffccc7;
+  border-color: #ffa39e;
+  transform: translateY(-1px);
+}
+
+/* Кнопка удаления элемента */
+.remove-btn {
+  background-color: transparent;
+  border: none;
+  color: #a0a0a0;
+  font-weight: bold;
+  font-size: 1.3rem;
+  padding: 0 8px;
+  margin-left: 12px;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.remove-btn:hover {
+  color: #d9363e;
 }
