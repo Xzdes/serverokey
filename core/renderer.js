@@ -20,24 +20,32 @@ class Renderer {
 
     _scopeCss(css, scopeId) {
         if (!css) return '';
+
+        // 1. Сначала удаляем все CSS-комментарии, чтобы они не мешали парсеру.
+        // Это делает регулярное выражение гораздо более надежным.
+        const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
         
-        // Этот regex надежно находит селекторы, не трогая содержимое @-правил (типа @media)
-        // Он ищет блоки кода, которые не начинаются с @ и находятся вне { }
+        // 2. Используем тот же regex, но уже на очищенном CSS.
+        // Он находит селекторы, игнорируя @-правила (например, @media, @keyframes).
         const regex = /((?:^|}|,)\s*)([^{}@,]+)((?:\s*,\s*[^{}@,]+)*)(\s*{)/g;
         
-        return css.replace(regex, (match, p1, mainSelector, otherSelectors, p4) => {
+        return cssWithoutComments.replace(regex, (match, p1, mainSelector, otherSelectors, p4) => {
+            // Объединяем все селекторы (например, "h1, h2, h3") в один массив
             const allSelectors = (mainSelector + (otherSelectors || '')).split(',');
             
             const scopedSelectors = allSelectors.map(selector => {
                 const trimmed = selector.trim();
-                // Заменяем :host на атрибут-селектор.
+                if (!trimmed) return ''; // Пропускаем пустые селекторы, если они вдруг появятся
+
+                // Правильно заменяем :host на сам селектор-атрибут
                 if (trimmed === ':host') {
                     return `[data-component-id="${scopeId}"]`;
                 }
-                // Для всех остальных селекторов - добавляем атрибут в начало.
+                // Для всех остальных селекторов — добавляем атрибут в начало
                 return `[data-component-id="${scopeId}"] ${trimmed}`;
-            }).join(', ');
+            }).filter(Boolean).join(', '); // .filter(Boolean) убирает пустые строки
 
+            // Возвращаем полностью собранное и корректное правило
             return `${p1}${scopedSelectors}${p4}`;
         });
     }
