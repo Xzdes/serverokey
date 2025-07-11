@@ -1,0 +1,9 @@
+:host {
+  border: 1px solid #ccc;
+  padding: 15px;
+  border-radius: 8px;
+}
+
+button {
+  margin-left: 10px;
+}

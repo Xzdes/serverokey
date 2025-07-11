@@ -49,10 +49,8 @@ class RequestHandler {
                 const componentName = routeConfig.update;
                 const { html, styles } = this.renderer.renderComponent(componentName, this.dataManager.data);
                 
-                // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
-                // Мы больше не создаем внешнюю обертку.
-                // Отдаем только стили и сам HTML компонента.
-                const styleTag = styles.length > 0 ? `<style>\n${[...new Set(styles)].join('\n')}\n</style>` : '';
+   
+                const styleTag = styles ? `<style>${styles}</style>` : '';
                 const finalHtml = `${styleTag}${html}`;
 
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);

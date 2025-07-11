@@ -9,30 +9,11 @@ module.exports = {
     mainLayout: 'main-layout.html',
     receipt: {
       template: 'receipt.html',
-      styles: {
-        '#': {
-          'border': '1px solid #ccc',
-          'padding': '15px',
-          'border-radius': '8px',
-          'background-color': '#f9f9f9',
-          'min-width': '300px'
-        },
-        '#clear-btn': {
-          'background-color': '#ffdddd',
-          'hover:background-color': '#ffbaba'
-        }
-      }
+      style: 'receipt.css' // <-- Вот оно!
     },
     positionsList: {
       template: 'positionsList.html',
-      styles: {
-        '#': {
-          'border': '1px solid #ccc',
-          'padding': '15px',
-          'border-radius': '8px'
-        },
-        'button': { 'margin-left': '10px' }
-      }
+      style: 'positionsList.css' // <-- И здесь!
     }
   },
   routes: {

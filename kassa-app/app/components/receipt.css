@@ -1,0 +1,17 @@
+/* Используем :host для стилизации корневого элемента */
+:host {
+  border: 1px solid #ccc;
+  padding: 15px;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+  min-width: 300px;
+}
+
+#clear-btn {
+  background-color: #ffdddd;
+  border: 1px solid #ffbaba;
+}
+
+#clear-btn:hover {
+  background-color: #ffbaba;
+}
