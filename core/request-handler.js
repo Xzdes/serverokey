@@ -2,7 +2,8 @@
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
-const { DataManipulator } = require('./data-manipulator.js'); // Импортируем новый модуль
+const { DataManipulator } = require('./data-manipulator.js');
+const { FormulaEngine } = require('./formula-engine.js'); // Нам понадобится наш новый движок
 
 class RequestHandler {
     constructor(manifest, dataManager, assetLoader, renderer) {
@@ -37,23 +38,25 @@ class RequestHandler {
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
                 const context = this.dataManager.getContext(routeConfig.reads);
-                // Добавляем body в контекст, чтобы к нему можно было обращаться (e.g., "body.id")
                 context.body = body;
 
-                // --- НОВАЯ ЛОГИКА ---
-                if (routeConfig.manipulate) {
+                // --- ОБНОВЛЕННАЯ ЛОГИКА ---
+                if (routeConfig.steps) {
+                    // Используем новую систему "steps"
+                    const engine = new FormulaEngine(context);
+                    engine.run(routeConfig.steps);
+                } else if (routeConfig.manipulate) {
                     // Используем декларативный манипулятор
-                    const manipulator = new DataManipulator(context);
+                    const manipulator = new DataManipulator(context, this.assetLoader);
                     manipulator.execute(routeConfig.manipulate);
                 } else if (routeConfig.handler) {
-                    // Используем старый способ через JS-файл (для обратной совместимости)
+                    // Используем старый способ через JS-файл
                     const handler = this.assetLoader.getAction(routeConfig.handler);
                     handler(context, body);
                 } else {
-                    throw new Error(`Action route ${routeKey} has no 'manipulate' or 'handler' defined.`);
+                    throw new Error(`Action route ${routeKey} has no 'steps', 'manipulate', or 'handler' defined.`);
                 }
                 
-                // Удаляем временное поле body перед сохранением
                 delete context.body;
 
                 routeConfig.writes.forEach(key => {

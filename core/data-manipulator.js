@@ -6,14 +6,29 @@ function getValue(obj, path) {
 }
 
 class DataManipulator {
-    constructor(context) {
-        this.context = context; // Контекст данных (например, { receipt: ..., positions: ... })
+    // Теперь нам нужен assetLoader для доступа к кастомным операциям
+    constructor(context, assetLoader) { 
+        this.context = context;
+        this.assetLoader = assetLoader;
     }
 
     execute(config) {
-        const { operation, target, source, findBy, match } = config;
+        const { operation, target, source, findBy, match, args } = config;
 
-        // Получаем ссылку на массив, который будем менять
+        // --- НОВАЯ ЛОГИКА ---
+        if (operation.startsWith('custom:')) {
+            const operationName = operation.substring(7); // "custom:".length
+            const customOperation = this.assetLoader.getOperation(operationName);
+            if (customOperation) {
+                // Подготавливаем аргументы для кастомной операции
+                const operationArgs = this._resolveArgs(args);
+                return customOperation(this.context, operationArgs);
+            } else {
+                throw new Error(`DataManipulator Error: Custom operation '${operationName}' not found.`);
+            }
+        }
+
+        // --- Старая логика для встроенных операций ---
         const targetArray = getValue(this.context, target);
         if (!Array.isArray(targetArray)) {
             throw new Error(`DataManipulator Error: Target "${target}" is not an array.`);
@@ -26,10 +41,19 @@ class DataManipulator {
             case 'removeFirstWhere':
                 this._handleRemove(targetArray, match);
                 break;
-            // Здесь можно будет добавлять новые операции: 'updateWhere', 'clear', etc.
             default:
-                throw new Error(`DataManipulator Error: Unknown operation "${operation}".`);
+                throw new Error(`DataManipulator Error: Unknown built-in operation "${operation}".`);
         }
+    }
+
+        _resolveArgs(argsConfig) {
+        if (!argsConfig) return {};
+        const resolvedArgs = {};
+        for (const key in argsConfig) {
+            // Получаем значение из контекста (например, из body.code)
+            resolvedArgs[key] = getValue(this.context, argsConfig[key]);
+        }
+        return resolvedArgs;
     }
 
     _handlePush(targetArray, source, findBy) {

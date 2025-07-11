@@ -1,17 +1,13 @@
 // manifest.js
 
 module.exports = {
-  // --- НОВАЯ СЕКЦИЯ ---
   globals: {
-    // Статичные глобальные переменные
     appName: "Атомарная Касса",
     appVersion: "1.0.0",
-    // Указываем, какие источники данных из секции 'data' сделать глобальными
     injectData: ['user'] 
   },
 
   data: {
-    // Добавляем новый источник данных для пользователя
     user: {
       initialState: {
         name: "Иванов И.И.",
@@ -20,20 +16,39 @@ module.exports = {
     },
     receipt: {
       initialState: { 
-        items: [], total: '0.00', itemCount: 0,
-        discountPercent: 10, discount: '0.00', finalTotal: '0.00'
+        items: [], 
+        total: '0.00',
+        itemCount: 0,
+        discountPercent: 10,
+        discount: '0.00',
+        finalTotal: '0.00'
       },
       computed: [
-        { "target": "itemCount", "formula": "count(items)" },
-        { "target": "total", "formula": "sum(items, 'price')", "format": "toFixed(2)" },
-        { "target": "discount", "formula": "total * (discountPercent / 100)", "format": "toFixed(2)" },
-        { "target": "finalTotal", "formula": "total - discount", "format": "toFixed(2)" }
+        {
+          "target": "itemCount",
+          "formula": "count(items)"
+        },
+        {
+          "target": "total",
+          "formula": "sum(items, 'price')",
+          "format": "toFixed(2)"
+        },
+        {
+          "target": "discount",
+          // ПРАВИЛЬНАЯ ФОРМУЛА: переменные доступны напрямую
+          "formula": "total * (discountPercent / 100)",
+          "format": "toFixed(2)"
+        },
+        {
+          "target": "finalTotal",
+          "formula": "total - discount",
+          "format": "toFixed(2)"
+        }
       ]
     },
     positions: { initialState: { all: [] } },
     viewState: { initialState: { query: '', filtered: [] } }
   },
-  
   
   components: {
     mainLayout: 'main-layout.html',
@@ -70,7 +85,16 @@ module.exports = {
     },
     'POST /action/clearReceipt': {
       type: 'action',
-      handler: 'clearReceipt',
+      // handler: 'clearReceipt', // Больше не нужен
+      // Используем новую, мощную секцию steps
+      steps: [
+        // Шаг 1: Очищаем массив товаров. 
+        // Мы присваиваем полю 'items' новый пустой массив.
+        { "set": "receipt.items", "to": "[]" },
+        
+        // Шаг 2: Сбрасываем процент скидки до значения по умолчанию (10).
+        { "set": "receipt.discountPercent", "to": "10" }
+      ],
       reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
@@ -92,6 +116,18 @@ module.exports = {
       reads: ['positions', 'viewState'],
       writes: ['viewState'],
       update: 'positionsList'
+    },
+    'POST /action/applyCoupon': {
+      type: 'action',
+      manipulate: {
+        operation: 'custom:applyCoupon',
+        args: {
+          couponCode: 'body.coupon_code'
+        }
+      },
+      reads: ['receipt'],
+      writes: ['receipt'],
+      update: 'receipt'
     }
   }
 };

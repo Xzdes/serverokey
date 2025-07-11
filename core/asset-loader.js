@@ -8,30 +8,41 @@ class AssetLoader {
         this.manifest = manifest;
         this.actions = {};
         this.components = {};
+        this.operations = {}; // --- НОВАЯ СЕКЦИЯ ДЛЯ ОПЕРАЦИЙ ---
         this.loadAll();
     }
 
     loadAll() {
         console.log('[Engine] Caching assets...');
         
+        // --- КЭШИРУЕМ ОПЕРАЦИИ ---
+        const operationsPath = path.join(this.appPath, 'app', 'operations');
+        if (fs.existsSync(operationsPath)) {
+            fs.readdirSync(operationsPath).forEach(file => {
+                if (file.endsWith('.js')) {
+                    const operationName = path.basename(file, '.js');
+                    const operationPath = path.join(operationsPath, file);
+                    this.operations[operationName] = require(operationPath);
+                    console.log(`[AssetLoader] Cached custom operation: '${operationName}'`);
+                }
+            });
+        }
+        
         // Кэшируем actions
         for (const route of Object.values(this.manifest.routes)) {
-            // --- ИСПРАВЛЕНИЕ ---
-            // Загружаем handler, только если он явно указан в маршруте
             if (route.type === 'action' && route.handler && !this.actions[route.handler]) {
                 const actionPath = path.join(this.appPath, 'app', 'actions', `${route.handler}.js`);
                 try {
                     this.actions[route.handler] = require(actionPath);
                 } catch(e) {
                     console.error(`[AssetLoader] CRITICAL: Could not load action file for handler '${route.handler}' from ${actionPath}`);
-                    // В случае ошибки, можно либо упасть, либо продолжить с предупреждением.
-                    // Для надежности лучше упасть, чтобы разработчик сразу увидел проблему.
                     throw e;
                 }
             }
         }
 
         // Кэшируем components
+        // ... (этот блок без изменений)
         for (const componentName in this.manifest.components) {
             const config = this.manifest.components[componentName];
             const componentData = { template: null, style: null };
@@ -60,6 +71,7 @@ class AssetLoader {
 
     getAction(name) { return this.actions[name]; }
     getComponent(name) { return this.components[name]; }
+    getOperation(name) { return this.operations[name]; } // --- НОВЫЙ GETTER ---
 }
 
 module.exports = { AssetLoader };

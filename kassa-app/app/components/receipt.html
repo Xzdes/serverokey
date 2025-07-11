@@ -23,7 +23,7 @@
     <!-- Отображаем сообщение, только если товаров нет -->
     <div class="empty-state" atom-if="!receipt.items.length">
         <p>Чек пуст</p>
-        <span>Добавьте товары из списка слева.</span>
+        <span>Добавьте товары из списка справа.</span>
     </div>
     
     <hr>
@@ -42,4 +42,14 @@
     >
       Очистить чек
     </button>
+    
+    <form class="coupon-form">
+      <input type="text" name="coupon_code" placeholder="Промокод">
+      <button 
+        atom-action="POST /action/applyCoupon"
+        atom-target="#receipt-container"
+      >
+        Применить
+      </button>
+    </form>
 </div>
