@@ -1,6 +1,6 @@
 {
   "name": "serverokey",
-  "version": "2.2.2",
+  "version": "3.0.0",
   "main": "engine-client.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
