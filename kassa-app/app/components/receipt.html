@@ -1,23 +1,40 @@
 <!-- app/components/receipt.html -->
 <div>
     <h3>Чек</h3>
+
+    <!-- 
+      Тег <ul> создается в любом случае, а его содержимое зависит от данных.
+      Это упрощает логику.
+    -->
     <ul>
-      {{#each receipt.items}}
+        <!-- Цикл: для каждого элемента в receipt.items будет создан один тег <li> -->
+        {{#receipt.items}}
         <li>
-          <span>{{this.name}} - {{this.price}} руб.</span>
-          <!-- Кнопка для удаления элемента -->
-          <button 
-            class="remove-btn"
-            atom-action="POST /action/removeItem"
-            atom-target="#receipt-container"
-            name="index"
-            value="{{@index}}"
-          >
-            ×
-          </button>
+            <span>{{name}} - {{price}} руб.</span>
+            <button 
+              class="remove-btn"
+              atom-action="POST /action/removeItem"
+              atom-target="#receipt-container"
+              name="itemId"
+              value="{{id}}"
+            >
+              ×
+            </button>
         </li>
-      {{/each}}
+        {{/receipt.items}}
     </ul>
+
+    <!-- 
+      Инвертированная секция: рендерится, если receipt.items - пустой массив.
+      Мы используем его, чтобы показать сообщение о пустом чеке.
+    -->
+    {{^receipt.items}}
+    <div class="empty-state">
+        <p>Чек пуст</p>
+        <span>Добавьте товары из списка справа.</span>
+    </div>
+    {{/receipt.items}}
+    
     <hr>
     <p><b>Итого: {{receipt.total}} руб.</b></p>
     

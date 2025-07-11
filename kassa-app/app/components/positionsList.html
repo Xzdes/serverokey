@@ -17,19 +17,20 @@
 
   <form>
     <ul>
-      {{#each viewState.filtered}}
+      <!-- Правильный синтаксис Mustache для итерации по массиву -->
+      {{#viewState.filtered}}
       <li>
-        <span>{{this.name}} ({{this.price}} руб.)</span>
+        <span>{{name}} ({{price}} руб.)</span>
         <button
           atom-action="POST /action/addItem"
           atom-target="#receipt-container"
           name="id"
-          value="{{this.id}}"
+          value="{{id}}"
         >
           Добавить
         </button>
       </li>
-      {{/each}}
+      {{/viewState.filtered}}
     </ul>
   </form>
 </div>
