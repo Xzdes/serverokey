@@ -1,6 +1,6 @@
 <!-- app/components/receipt.html -->
 <div>
-    <h3>Чек</h3>
+    <h3>Чек для: {{user.name}}</h3>
 
     <!-- Отображаем <ul>, только если есть товары -->
     <ul atom-if="receipt.items.length > 0">

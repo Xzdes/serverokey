@@ -18,9 +18,8 @@ const manifest = loadManifest(appPath);
 // 2. Инициализируем модули ядра
 const dataManager = new DataManager(appPath, manifest); 
 const assetLoader = new AssetLoader(appPath, manifest);
-const renderer = new Renderer(assetLoader);
+const renderer = new Renderer(assetLoader, manifest, dataManager); 
 const requestHandler = new RequestHandler(manifest, dataManager, assetLoader, renderer);
-
 // --- Запуск сервера ---
 const port = 3000;
 http.createServer(requestHandler.handle.bind(requestHandler))
