@@ -1,8 +1,6 @@
 // manifest.js
 
 module.exports = {
-  // Добавляем viewState для управления состоянием интерфейса (поиском)
-  // И меняем структуру positions, чтобы был мастер-список
   data: {
     receipt: { initialState: { items: [], total: '0.00' } },
     positions: { initialState: { all: [] } },
@@ -30,32 +28,44 @@ module.exports = {
         'positionsList': 'positionsList'
       }
     },
+    // --- ПЕРЕПИСАННЫЙ ACTION ---
     'POST /action/addItem': {
       type: 'action',
-      handler: 'addItem',
+      // handler: 'addItem', // Больше не нужен
+      manipulate: {
+        target: 'receipt.items',       // Цель: массив items в данных receipt
+        operation: 'push',             // Операция: добавить в конец
+        source: 'positions.all',       // Источник: массив all в данных positions
+        findBy: { "id": "body.id" }    // Найти в source элемент, где id равен id из тела запроса
+      },
       reads: ['positions', 'receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
+    // --- ОСТАВЛЯЕМ СТАРЫЙ ACTION ДЛЯ ДЕМОНСТРАЦИИ ОБРАТНОЙ СОВМЕСТИМОСТИ ---
     'POST /action/clearReceipt': {
       type: 'action',
-      handler: 'clearReceipt',
+      handler: 'clearReceipt', // Использует JS-файл, т.к. нет 'manipulate'
       reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
-    // Новый action для удаления одного товара
+    // --- ПЕРЕПИСАННЫЙ ACTION ---
     'POST /action/removeItem': {
       type: 'action',
-      handler: 'removeItem',
+      // handler: 'removeItem', // Больше не нужен
+      manipulate: {
+        target: 'receipt.items',          // Цель: массив items в данных receipt
+        operation: 'removeFirstWhere',    // Операция: удалить первый найденный
+        match: { "id": "body.itemId" }    // Найти элемент, где id равен itemId из тела запроса
+      },
       reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
-    // Новый action для фильтрации списка товаров
     'POST /action/filterPositions': {
       type: 'action',
-      handler: 'filterPositions',
+      handler: 'filterPositions', // Этот action слишком сложен для declarative, оставляем JS
       reads: ['positions', 'viewState'],
       writes: ['viewState'],
       update: 'positionsList'
