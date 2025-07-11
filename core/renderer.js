@@ -1,14 +1,49 @@
-// core/renderer.js - Использует Mustache.js для рендеринга.
-const Mustache = require('./mustache.js'); // Путь к файлу внутри папки core
+// core/renderer.js - Добавлена поддержка директивы atom-if
+const Mustache = require('./mustache.js');
+const { FormulaParser } = require('./formula-parser.js'); // Нам понадобится наш парсер
 
 class Renderer {
     constructor(assetLoader) {
         this.assetLoader = assetLoader;
-        // Отключаем HTML-экранирование по умолчанию.
         Mustache.escape = function(text) { return text; };
     }
+    
+    // --- НОВЫЙ МЕТОД ДЛЯ ОБРАБОТКИ ДИРЕКТИВ ---
+_processDirectives(html, dataContext) {
+    const regex = /<([a-zA-Z0-9\-]+)[^>]*?\satom-if="([^"]+)"[^>]*?>([\s\S]*?)<\/\1>/g;
+    const parser = new FormulaParser(dataContext.receipt); // Контекст должен быть конкретным объектом
+
+    const evaluateCondition = (condition) => {
+        // Заменяем dot-notation на переменные, которые парсер поймет
+        const simplifiedCondition = condition.replace(/(\w+)\.(\w+)\.length/, (match, obj, prop) => {
+             // Превращаем 'receipt.items.length' в реальное число
+            return dataContext[obj] && dataContext[obj][prop] ? dataContext[obj][prop].length : 0;
+        });
+        
+        try {
+            return new Function(`return ${simplifiedCondition}`)();
+        } catch(e) {
+            return false;
+        }
+    };
+    
+    let oldHtml;
+    do {
+        oldHtml = html;
+        html = html.replace(regex, (match, tagName, condition, content) => {
+            if (evaluateCondition(condition)) {
+                return match.replace(/\satom-if="[^"]+"/, '');
+            } else {
+                return '';
+            }
+        });
+    } while (oldHtml !== html);
+
+    return html;
+}
 
     _scopeCss(css, scopeId) {
+        // ... (без изменений)
         if (!css) return '';
         const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
         const regex = /((?:^|}|,)\s*)([^{}@,]+)((?:\s*,\s*[^{}@,]+)*)(\s*{)/g;
@@ -35,9 +70,13 @@ class Renderer {
 
         let html = Mustache.render(component.template, globalData);
 
+        // --- НОВЫЙ ШАГ: ОБРАБОТКА ДИРЕКТИВ ---
+        // Мы передаем весь globalData, чтобы у директив был доступ ко всем переменным
+        html = this._processDirectives(html, globalData);
+
         const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
         
-        html = html.replace(/<([a-z0-9]+)/, `<$1 data-component-id="${componentId}"`);
+        html = html.replace(/<([a-zA-Z0-9]+)/, `<$1 data-component-id="${componentId}"`);
         
         const styles = this._scopeCss(component.style, componentId);
 
@@ -45,6 +84,7 @@ class Renderer {
     }
 
     renderView(routeConfig, globalData) {
+        // ... (без изменений, т.к. renderComponent теперь сам обрабатывает директивы)
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
         

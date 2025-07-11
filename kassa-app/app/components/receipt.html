@@ -2,7 +2,8 @@
 <div>
     <h3>Чек</h3>
 
-    <ul>
+    <!-- Отображаем <ul>, только если есть товары -->
+    <ul atom-if="receipt.items.length > 0">
         {{#receipt.items}}
         <li>
             <span>{{name}} - {{price}} руб.</span>
@@ -19,12 +20,11 @@
         {{/receipt.items}}
     </ul>
 
-    {{^receipt.items}}
-    <div class="empty-state">
+    <!-- Отображаем сообщение, только если товаров нет -->
+    <div class="empty-state" atom-if="!receipt.items.length">
         <p>Чек пуст</p>
-        <span>Добавьте товары из списка справа.</span>
+        <span>Добавьте товары из списка слева.</span>
     </div>
-    {{/receipt.items}}
     
     <hr>
     
