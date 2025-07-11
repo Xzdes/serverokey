@@ -2,12 +2,7 @@
 <div>
     <h3>Чек</h3>
 
-    <!-- 
-      Тег <ul> создается в любом случае, а его содержимое зависит от данных.
-      Это упрощает логику.
-    -->
     <ul>
-        <!-- Цикл: для каждого элемента в receipt.items будет создан один тег <li> -->
         {{#receipt.items}}
         <li>
             <span>{{name}} - {{price}} руб.</span>
@@ -24,10 +19,6 @@
         {{/receipt.items}}
     </ul>
 
-    <!-- 
-      Инвертированная секция: рендерится, если receipt.items - пустой массив.
-      Мы используем его, чтобы показать сообщение о пустом чеке.
-    -->
     {{^receipt.items}}
     <div class="empty-state">
         <p>Чек пуст</p>
@@ -36,7 +27,13 @@
     {{/receipt.items}}
     
     <hr>
-    <p><b>Итого: {{receipt.total}} руб.</b></p>
+    
+    <div class="totals">
+      <p><span>Позиций:</span> <span>{{receipt.itemCount}} шт.</span></p>
+      <p><span>Сумма:</span> <span>{{receipt.total}} руб.</span></p>
+      <p class="discount"><span>Скидка ({{receipt.discountPercent}}%):</span> <span>-{{receipt.discount}} руб.</span></p>
+      <p class="final-total"><b>Итого:</b> <b>{{receipt.finalTotal}} руб.</b></p>
+    </div>
     
     <button 
       id="clear-btn"

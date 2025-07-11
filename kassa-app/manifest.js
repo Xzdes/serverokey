@@ -2,7 +2,38 @@
 
 module.exports = {
   data: {
-    receipt: { initialState: { items: [], total: '0.00' } },
+    receipt: {
+      initialState: { 
+        items: [], 
+        total: '0.00',
+        itemCount: 0,
+        discountPercent: 10,
+        discount: '0.00',
+        finalTotal: '0.00'
+      },
+      // Используем новый синтаксис с "formula"
+      computed: [
+        {
+          "target": "itemCount",
+          "formula": "count(items)"
+        },
+        {
+          "target": "total",
+          "formula": "sum(items, 'price')",
+          "format": "toFixed(2)"
+        },
+        {
+          "target": "discount",
+          "formula": "total * (discountPercent / 100)",
+          "format": "toFixed(2)"
+        },
+        {
+          "target": "finalTotal",
+          "formula": "total - discount",
+          "format": "toFixed(2)"
+        }
+      ]
+    },
     positions: { initialState: { all: [] } },
     viewState: { initialState: { query: '', filtered: [] } }
   },
@@ -28,36 +59,31 @@ module.exports = {
         'positionsList': 'positionsList'
       }
     },
-    // --- ПЕРЕПИСАННЫЙ ACTION ---
     'POST /action/addItem': {
       type: 'action',
-      // handler: 'addItem', // Больше не нужен
       manipulate: {
-        target: 'receipt.items',       // Цель: массив items в данных receipt
-        operation: 'push',             // Операция: добавить в конец
-        source: 'positions.all',       // Источник: массив all в данных positions
-        findBy: { "id": "body.id" }    // Найти в source элемент, где id равен id из тела запроса
+        target: 'receipt.items',
+        operation: 'push',
+        source: 'positions.all',
+        findBy: { "id": "body.id" }
       },
       reads: ['positions', 'receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
-    // --- ОСТАВЛЯЕМ СТАРЫЙ ACTION ДЛЯ ДЕМОНСТРАЦИИ ОБРАТНОЙ СОВМЕСТИМОСТИ ---
     'POST /action/clearReceipt': {
       type: 'action',
-      handler: 'clearReceipt', // Использует JS-файл, т.к. нет 'manipulate'
+      handler: 'clearReceipt',
       reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
-    // --- ПЕРЕПИСАННЫЙ ACTION ---
     'POST /action/removeItem': {
       type: 'action',
-      // handler: 'removeItem', // Больше не нужен
       manipulate: {
-        target: 'receipt.items',          // Цель: массив items в данных receipt
-        operation: 'removeFirstWhere',    // Операция: удалить первый найденный
-        match: { "id": "body.itemId" }    // Найти элемент, где id равен itemId из тела запроса
+        target: 'receipt.items',
+        operation: 'removeFirstWhere',
+        match: { "id": "body.itemId" }
       },
       reads: ['receipt'],
       writes: ['receipt'],
@@ -65,7 +91,7 @@ module.exports = {
     },
     'POST /action/filterPositions': {
       type: 'action',
-      handler: 'filterPositions', // Этот action слишком сложен для declarative, оставляем JS
+      handler: 'filterPositions',
       reads: ['positions', 'viewState'],
       writes: ['viewState'],
       update: 'positionsList'

@@ -109,3 +109,34 @@ p b {
 .remove-btn:hover {
   color: #d9363e;
 }
+
+hr {
+  border: none;
+  border-top: 1px dashed #cccccc;
+  margin: 16px 0;
+}
+
+/* Контейнер для итоговых сумм */
+.totals p {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  margin: 4px 0;
+  text-align: left; /* сбрасываем старое выравнивание */
+}
+
+.totals .discount {
+  color: #389e0d; /* зеленый цвет для скидки */
+}
+
+.totals .final-total {
+  font-size: 1.15rem;
+  margin-top: 10px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 10px;
+}
+
+#clear-btn {
+  margin-top: 20px; /* отодвинем кнопку очистки */
+  /* ... (остальные стили кнопки без изменений) ... */
+}

@@ -1,4 +1,8 @@
 {
   "items": [],
-  "total": "0.00"
+  "total": "0.00",
+  "itemCount": 0,
+  "discountPercent": 10,
+  "discount": "0.00",
+  "finalTotal": "0.00"
 }

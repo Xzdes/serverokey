@@ -8,6 +8,7 @@ const { AssetLoader } = require('./core/asset-loader.js');
 const { Renderer } = require('./core/renderer.js');
 const { RequestHandler } = require('./core/request-handler.js');
 
+
 // --- Инициализация ---
 const appPath = path.join(__dirname, 'kassa-app');
 
@@ -15,7 +16,7 @@ const appPath = path.join(__dirname, 'kassa-app');
 const manifest = loadManifest(appPath);
 
 // 2. Инициализируем модули ядра
-const dataManager = new DataManager(appPath, manifest.data);
+const dataManager = new DataManager(appPath, manifest); 
 const assetLoader = new AssetLoader(appPath, manifest);
 const renderer = new Renderer(assetLoader);
 const requestHandler = new RequestHandler(manifest, dataManager, assetLoader, renderer);
