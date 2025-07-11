@@ -1,6 +1,4 @@
 // core/request-handler.js
-// Переписываем полностью.
-
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -49,7 +47,6 @@ class RequestHandler {
                 const componentName = routeConfig.update;
                 const { html, styles } = this.renderer.renderComponent(componentName, this.dataManager.data);
                 
-   
                 const styleTag = styles ? `<style>${styles}</style>` : '';
                 const finalHtml = `${styleTag}${html}`;
 

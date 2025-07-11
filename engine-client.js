@@ -1,10 +1,9 @@
-// engine-client.js - маленький, но мощный.
-// Теперь поддерживает live-search с помощью atom-event="input"
+// engine-client.js - финальная версия с сохранением фокуса. Zero-dependency.
 
-// Таймер для устранения "дребезга" при вводе в поиске
+// Таймер для устранения "дребезга" при вводе
 let debounceTimer;
 
-// Основная функция для выполнения действия
+// Основная функция для выполнения серверного действия
 async function performAction(actionElement) {
     const [method, url] = actionElement.getAttribute('atom-action').split(' ');
     const targetSelector = actionElement.getAttribute('atom-target');
@@ -15,22 +14,35 @@ async function performAction(actionElement) {
         return;
     }
 
-    // Собираем данные. Теперь мы можем быть и инпутом, и кнопкой внутри формы.
     const form = actionElement.closest('form');
     let body = {};
     if (form) {
         const formData = new FormData(form);
-        // Если триггер - кнопка с name/value, добавляем их
         if (actionElement.tagName === 'BUTTON' && actionElement.name && actionElement.value) {
             formData.append(actionElement.name, actionElement.value);
         }
         formData.forEach((value, key) => { body[key] = value; });
     } else if (actionElement.name && actionElement.value) {
-        // Если это одиночный элемент (например, наш input)
         body[actionElement.name] = actionElement.value;
     }
 
     try {
+        // --- Логика сохранения фокуса и позиции курсора ---
+        const activeElement = document.activeElement;
+        let activeElementId = null;
+        let selectionStart, selectionEnd;
+
+        // 1. Проверяем, есть ли активный элемент внутри обновляемого контейнера
+        if (activeElement && targetElement.contains(activeElement) && activeElement.id) {
+            activeElementId = activeElement.id;
+            // Сохраняем позицию курсора только для полей ввода
+            if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') {
+                selectionStart = activeElement.selectionStart;
+                selectionEnd = activeElement.selectionEnd;
+            }
+        }
+        // --- Конец секции сохранения ---
+
         const response = await fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
@@ -40,7 +52,23 @@ async function performAction(actionElement) {
         if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
         const newHtml = await response.text();
+        
+        // 2. Обновляем DOM
         targetElement.innerHTML = newHtml;
+
+        // --- Логика восстановления фокуса ---
+        if (activeElementId) {
+            const elementToFocus = document.getElementById(activeElementId);
+            if (elementToFocus) {
+                // 3. Восстанавливаем фокус
+                elementToFocus.focus();
+                // 4. Восстанавливаем позицию курсора, если она была сохранена
+                if (typeof selectionStart !== 'undefined') {
+                    elementToFocus.setSelectionRange(selectionStart, selectionEnd);
+                }
+            }
+        }
+        // --- Конец секции восстановления ---
 
     } catch (err) {
         console.error(`[AtomEngine] Action failed:`, err);
@@ -48,34 +76,29 @@ async function performAction(actionElement) {
     }
 }
 
-// Универсальный обработчик событий
+// Универсальный обработчик для всех отслеживаемых событий
 function handleEvent(e) {
     const actionElement = e.target.closest('[atom-action]');
     if (!actionElement) return;
 
-    // Определяем, на какое событие должен реагировать элемент. По умолчанию 'click'.
     const triggerEvent = actionElement.getAttribute('atom-event') || 'click';
 
-    // Если тип события не совпадает с тем, что нам нужно, ничего не делаем.
     if (e.type !== triggerEvent) return;
     
-    // Для кликов и сабмитов отменяем стандартное поведение
     if (e.type === 'click' || e.type === 'submit') {
         e.preventDefault();
     }
 
-    // Если это событие ввода, используем debouncing
     if (e.type === 'input') {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             performAction(actionElement);
-        }, 300); // Задержка в 300 мс
+        }, 300); // Задержка 300мс
     } else {
-        // Для всех остальных событий (кликов) выполняем действие немедленно
         performAction(actionElement);
     }
 }
 
-// Регистрируем обработчик на несколько типов событий
+// Слушаем события на уровне документа
 document.addEventListener('click', handleEvent);
 document.addEventListener('input', handleEvent);
