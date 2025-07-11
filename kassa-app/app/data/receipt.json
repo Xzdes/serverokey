@@ -1,34 +1,16 @@
 {
   "items": [
     {
-      "id": 2,
-      "name": "Молоко 3.2%",
-      "price": "80.00"
-    },
-    {
-      "id": 2,
-      "name": "Молоко 3.2%",
-      "price": "80.00"
-    },
-    {
-      "id": 2,
-      "name": "Молоко 3.2%",
-      "price": "80.00"
-    },
-    {
-      "id": 2,
-      "name": "Молоко 3.2%",
-      "price": "80.00"
-    },
-    {
-      "id": 2,
-      "name": "Молоко 3.2%",
-      "price": "80.00"
+      "id": 5,
+      "name": "Масло сливочное",
+      "price": "180.00"
     }
   ],
-  "total": "400.00",
-  "itemCount": 5,
-  "discountPercent": 10,
-  "discount": "40.00",
-  "finalTotal": "360.00"
+  "total": "180.00",
+  "itemCount": 1,
+  "discountPercent": 0,
+  "discount": "0.00",
+  "finalTotal": "180.00",
+  "statusMessage": "Бонус не применен. Сумма заказа < 300 руб. Факт дня: 1 is the number of dimensions of a line.",
+  "bonusApplied": false
 }

@@ -1,9 +1,31 @@
-// engine-client.js - финальная версия с сохранением фокуса. Zero-dependency.
-
-// Таймер для устранения "дребезга" при вводе
+// engine-client.js
 let debounceTimer;
 
-// Основная функция для выполнения серверного действия
+function executeClientScripts(containerElement) {
+    const scriptTag = containerElement.querySelector('[data-atom-scripts]');
+    if (!scriptTag) return;
+
+    try {
+        const scriptsToRun = JSON.parse(scriptTag.textContent);
+        
+        scriptsToRun.forEach(scriptInfo => {
+            const componentElement = document.querySelector(`[data-component-id="${scriptInfo.id}"]`);
+            if (componentElement) {
+                try {
+                    // Создаем и вызываем функцию, передавая ей корневой элемент компонента как 'this'
+                    new Function(scriptInfo.code).call(componentElement);
+                } catch (e) {
+                    console.error(`[AtomEngine] Error executing client script for component ${scriptInfo.id}:`, e);
+                }
+            }
+        });
+    } catch (e) {
+        console.error('[AtomEngine] Failed to parse client scripts JSON:', e);
+    }
+    
+    scriptTag.remove(); // Удаляем тег после выполнения
+}
+
 async function performAction(actionElement) {
     const [method, url] = actionElement.getAttribute('atom-action').split(' ');
     const targetSelector = actionElement.getAttribute('atom-target');
@@ -27,21 +49,17 @@ async function performAction(actionElement) {
     }
 
     try {
-        // --- Логика сохранения фокуса и позиции курсора ---
         const activeElement = document.activeElement;
         let activeElementId = null;
         let selectionStart, selectionEnd;
 
-        // 1. Проверяем, есть ли активный элемент внутри обновляемого контейнера
         if (activeElement && targetElement.contains(activeElement) && activeElement.id) {
             activeElementId = activeElement.id;
-            // Сохраняем позицию курсора только для полей ввода
             if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') {
                 selectionStart = activeElement.selectionStart;
                 selectionEnd = activeElement.selectionEnd;
             }
         }
-        // --- Конец секции сохранения ---
 
         const response = await fetch(url, {
             method: method,
@@ -52,23 +70,20 @@ async function performAction(actionElement) {
         if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
         const newHtml = await response.text();
-        
-        // 2. Обновляем DOM
         targetElement.innerHTML = newHtml;
 
-        // --- Логика восстановления фокуса ---
+        // ВЫПОЛНЯЕМ КЛИЕНТСКИЕ СКРИПТЫ
+        executeClientScripts(targetElement);
+
         if (activeElementId) {
             const elementToFocus = document.getElementById(activeElementId);
             if (elementToFocus) {
-                // 3. Восстанавливаем фокус
                 elementToFocus.focus();
-                // 4. Восстанавливаем позицию курсора, если она была сохранена
                 if (typeof selectionStart !== 'undefined') {
                     elementToFocus.setSelectionRange(selectionStart, selectionEnd);
                 }
             }
         }
-        // --- Конец секции восстановления ---
 
     } catch (err) {
         console.error(`[AtomEngine] Action failed:`, err);
@@ -76,12 +91,11 @@ async function performAction(actionElement) {
     }
 }
 
-// Универсальный обработчик для всех отслеживаемых событий
 function handleEvent(e) {
     const actionElement = e.target.closest('[atom-action]');
     if (!actionElement) return;
 
-    const triggerEvent = actionElement.getAttribute('atom-event') || 'click';
+    const triggerEvent = actionElement.getAttribute('atom-event') || (actionElement.tagName === 'FORM' ? 'submit' : 'click');
 
     if (e.type !== triggerEvent) return;
     
@@ -93,7 +107,7 @@ function handleEvent(e) {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             performAction(actionElement);
-        }, 300); // Задержка 300мс
+        }, 300);
     } else {
         performAction(actionElement);
     }
@@ -101,4 +115,10 @@ function handleEvent(e) {
 
 // Слушаем события на уровне документа
 document.addEventListener('click', handleEvent);
+document.addEventListener('submit', handleEvent); // Добавляем submit
 document.addEventListener('input', handleEvent);
+
+// Выполняем скрипты при первоначальной загрузке страницы
+document.addEventListener('DOMContentLoaded', () => {
+    executeClientScripts(document.body);
+});

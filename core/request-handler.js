@@ -3,7 +3,7 @@ const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
 const { DataManipulator } = require('./data-manipulator.js');
-const { FormulaEngine } = require('./formula-engine.js'); // Нам понадобится наш новый движок
+const { ActionEngine } = require('./action-engine.js'); // Обновленный импорт
 
 class RequestHandler {
     constructor(manifest, dataManager, assetLoader, renderer) {
@@ -18,7 +18,7 @@ class RequestHandler {
         const routeKey = `${req.method} ${url.pathname}`;
 
         if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.join(process.cwd(), 'engine-client.js');
+            const clientScriptPath = path.join(__dirname, '..', 'engine-client.js'); // Исправлен путь
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
         }
@@ -32,7 +32,7 @@ class RequestHandler {
         try {
             if (routeConfig.type === 'view') {
                 const html = this.renderer.renderView(routeConfig, this.dataManager.data);
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html.replace('</body>', `<script src="/engine-client.js"></script></body>`));
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
             }
 
             if (routeConfig.type === 'action') {
@@ -40,34 +40,39 @@ class RequestHandler {
                 const context = this.dataManager.getContext(routeConfig.reads);
                 context.body = body;
 
-                // --- ОБНОВЛЕННАЯ ЛОГИКА ---
+                let finalContext = context;
+
                 if (routeConfig.steps) {
-                    // Используем новую систему "steps"
-                    const engine = new FormulaEngine(context);
-                    engine.run(routeConfig.steps);
+                    const engine = new ActionEngine(context);
+                    await engine.run(routeConfig.steps);
+                    finalContext = engine.context; // Получаем измененный контекст из движка
                 } else if (routeConfig.manipulate) {
-                    // Используем декларативный манипулятор
                     const manipulator = new DataManipulator(context, this.assetLoader);
                     manipulator.execute(routeConfig.manipulate);
+                    finalContext = manipulator.context;
                 } else if (routeConfig.handler) {
-                    // Используем старый способ через JS-файл
                     const handler = this.assetLoader.getAction(routeConfig.handler);
                     handler(context, body);
+                    finalContext = context;
                 } else {
                     throw new Error(`Action route ${routeKey} has no 'steps', 'manipulate', or 'handler' defined.`);
                 }
                 
-                delete context.body;
+                delete finalContext.body;
 
                 routeConfig.writes.forEach(key => {
-                    this.dataManager.updateAndSave(key, context[key]);
+                    this.dataManager.updateAndSave(key, finalContext[key]);
                 });
 
                 const componentName = routeConfig.update;
-                const { html, styles } = this.renderer.renderComponent(componentName, this.dataManager.data);
+                const { html, styles, scripts } = this.renderer.renderComponent(componentName, this.dataManager.data);
                 
                 const styleTag = styles ? `<style>${styles}</style>` : '';
-                const finalHtml = `${styleTag}${html}`;
+                // Встраиваем скрипты в специальный тег, который клиентский JS сможет прочитать
+                const scriptsTag = scripts.length > 0 
+                    ? `<script type="application/json" data-atom-scripts>${JSON.stringify(scripts)}</script>`
+                    : '';
+                const finalHtml = `${styleTag}${html}${scriptsTag}`;
 
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
             }

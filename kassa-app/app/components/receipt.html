@@ -1,6 +1,7 @@
 <!-- app/components/receipt.html -->
 <div>
     <h3>Чек для: {{user.name}}</h3>
+<p atom-if="receipt.statusMessage" style="color: green; font-style: italic;">{{receipt.statusMessage}}</p>
 
     <!-- Отображаем <ul>, только если есть товары -->
     <ul atom-if="receipt.items.length > 0">
@@ -51,5 +52,13 @@
       >
         Применить
       </button>
+
+      <button 
+  id="bonus-btn"
+  atom-action="POST /action/applyBonus"
+  atom-target="#receipt-container"
+>
+  Применить Бонус
+</button>
     </form>
 </div>

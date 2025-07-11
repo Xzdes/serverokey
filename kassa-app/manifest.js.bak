@@ -1,0 +1,68 @@
+// manifest.js (СЛОМАННАЯ ВЕРСИЯ ДЛЯ ТЕСТИРОВАНИЯ ВАЛИДАТОРА)
+
+module.exports = {
+  globals: {
+    appName: "Атомарная Касса",
+    injectData: ['user'] 
+  },
+
+  data: {
+    // Ошибка: 'user' используется в globals.injectData, но здесь закомментирован
+    // user: { initialState: { name: "Иванов И.И." } },
+    reciept: { // Ошибка: опечатка в имени "receipt"
+      initialState: { items: [] },
+    }
+  },
+  
+  components: {
+    mainLayout: 'main-layout.html',
+    receipt: {
+      // Ошибка: отсутствует 'template'
+      style: 'receipt.css'
+    },
+    positionsList: {
+      template: 'positionsList.html',
+      style: 'positionsList_non_existent.css' // Ошибка: несуществующий файл стилей
+    }
+  },
+
+  routes: {
+    'GET /': {
+      type: 'view',
+      layout: 'nonExistentLayout', // Ошибка: несуществующий layout
+      inject: {
+        'receipt': 'receipt',
+        'positionsList': 'positionsList'
+      }
+    },
+    'POST /action/addItem': {
+      type: 'action',
+      // Ошибка: ссылка на некорректный источник данных 'reciept'
+      manipulate: { target: 'reciept.items', operation: 'push' },
+      reads: ['positions', 'reciept'], // Ошибка: несуществующий источник 'positions'
+      writes: ['reciept'],
+      update: 'componentThatDoesNotExist' // Ошибка: несуществующий компонент
+    },
+    'POST /action/clearReceipt': {
+      type: 'action',
+      // Ошибка: нет ни handler, ни manipulate, ни steps
+      reads: ['reciept'],
+      writes: ['reciept'],
+      update: 'receipt'
+    },
+    'POST /action/customOp': {
+        type: 'action',
+        manipulate: { operation: 'custom:noSuchOperation' }, // Ошибка: несуществующая операция
+        reads: ['reciept'],
+        writes: ['reciept'],
+        update: 'receipt'
+    },
+    'POST /action/jsHandler': {
+        type: 'action',
+        handler: 'nonExistentHandler', // Ошибка: несуществующий хендлер
+        reads: ['reciept'],
+        writes: ['reciept'],
+        update: 'receipt'
+    }
+  }
+};
