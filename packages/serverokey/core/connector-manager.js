@@ -1,6 +1,8 @@
 // core/connector-manager.js
 const { JsonConnector } = require('./connectors/json-connector.js');
-const { InMemoryConnector } = require('./connectors/in-memory-connector.js'); // <-- ДОБАВЛЕНО
+const { InMemoryConnector } = require('./connectors/in-memory-connector.js');
+// +++ НОВЫЙ ИМПОРТ +++
+const { WiseJsonConnector } = require('./connectors/wise-json-connector.js');
 
 class ConnectorManager {
     constructor(appPath, manifest) {
@@ -20,10 +22,15 @@ class ConnectorManager {
                     console.log(`[ConnectorManager] Initialized 'json' connector for '${name}'`);
                     break;
                 
-                // --- ДОБАВЛЕН НОВЫЙ БЛОК ---
                 case 'in-memory':
                     this.connectors[name] = new InMemoryConnector(name, config);
                     console.log(`[ConnectorManager] Initialized 'in-memory' connector for '${name}'`);
+                    break;
+
+                // +++ НОВЫЙ БЛОК +++
+                case 'wise-json':
+                    this.connectors[name] = new WiseJsonConnector(name, config, this.appPath);
+                    console.log(`[ConnectorManager] Initialized 'wise-json' connector for '${name}'`);
                     break;
 
                 default:

@@ -3,12 +3,15 @@ module.exports = (context, body) => {
   const { positions, viewState } = context;
   const query = (body.query || '').toLowerCase().trim();
 
-  viewState.query = body.query; // Сохраняем исходный запрос для value в input
+  viewState.query = body.query;
+
+  // --- ИЗМЕНЕНИЕ: ищем в positions.items ---
+  const sourceArray = positions.items || [];
 
   if (!query) {
-    viewState.filtered = positions.all; // Если запрос пуст, показываем всё
+    viewState.filtered = sourceArray;
   } else {
-    viewState.filtered = positions.all.filter(item => 
+    viewState.filtered = sourceArray.filter(item => 
       item.name.toLowerCase().includes(query)
     );
   }

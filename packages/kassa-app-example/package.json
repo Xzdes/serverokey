@@ -4,15 +4,17 @@
   "description": "Example application for the Serverokey engine",
   "private": true,
   "main": "server.js",
-"scripts": {
-  "start": "node server.js",
-  "dev": "nodemon server.js",
-  "dev:debug": "nodemon server.js -- --debug",
-  "validate": "serverokey-validate"
-},
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "dev:debug": "nodemon server.js -- --debug",
+    "validate": "serverokey-validate",
+    "seed": "node seed.js"
+  },
   "dependencies": {
     "dotenv": "^17.2.0",
-    "serverokey": "file:../serverokey"
+    "serverokey": "file:../serverokey",
+    "wise-json-db": "^6.0.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
