@@ -69,7 +69,6 @@ class RequestHandler {
                 }
 
                 const allDataKeysToRender = this.manifest.globals?.injectData || [];
-                // Добавляем данные, которые были прочитаны в экшене, чтобы они были доступны для рендера
                 routeConfig.reads.forEach(key => {
                     if (!allDataKeysToRender.includes(key)) {
                         allDataKeysToRender.push(key);
@@ -79,13 +78,14 @@ class RequestHandler {
                 const updatedContext = await this.connectorManager.getContext(allDataKeysToRender);
                 
                 const componentName = routeConfig.update;
+                // Мы получаем `styles` из рендера, но больше их не используем в ответе
                 const { html, styles, scripts } = await this.renderer.renderComponent(componentName, updatedContext);
                 
-                const styleTag = styles ? `<style>${styles}</style>` : '';
+                // ИСПРАВЛЕНИЕ: styleTag удален из финального HTML
                 const scriptsTag = scripts.length > 0 
                     ? `<script type="application/json" data-atom-scripts>${JSON.stringify(scripts)}</script>`
                     : '';
-                const finalHtml = `${styleTag}${html}${scriptsTag}`;
+                const finalHtml = `${html}${scriptsTag}`;
 
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
             }
@@ -105,7 +105,6 @@ class RequestHandler {
             req.on('data', chunk => {
                 size += chunk.length;
                 if (size > MAX_BODY_SIZE) {
-                    console.warn(`[Engine] Request body size limit exceeded (${MAX_BODY_SIZE} bytes).`);
                     req.socket.destroy(); 
                     reject(new Error('Payload Too Large'));
                     return; 

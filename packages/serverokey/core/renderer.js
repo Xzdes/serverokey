@@ -35,8 +35,7 @@ class Renderer {
         return context;
     }
 
-    // ЕДИНЫЙ, НАДЕЖНЫЙ ПЛАГИН ДЛЯ ВСЕХ HTML-ПРЕОБРАЗОВАНИЙ
-    _createHtmlProcessorPlugin(dataContext, scripts, componentId) {
+    _createDirectivesPlugin(dataContext) {
         const evaluateCondition = (condition) => {
             try {
                 const contextKeys = Object.keys(dataContext);
@@ -50,29 +49,23 @@ class Renderer {
         };
 
         return function(tree) {
-            let rootNode = null;
-
             tree.walk(node => {
-                if (typeof node !== 'object' || node === null) {
-                    return node;
-                }
-
-                // Находим первый корневой узел-тег
-                if (!rootNode && typeof node.tag === 'string') {
-                    rootNode = node;
-                }
-
-                // Обработка atom-if
-                if (node.attrs && node.attrs['atom-if']) {
+                if (node && node.attrs && node.attrs['atom-if']) {
                     if (evaluateCondition(node.attrs['atom-if'])) {
                         delete node.attrs['atom-if'];
                     } else {
-                        return null; // Правильный способ удалить узел
+                        return null;
                     }
                 }
+                return node;
+            });
+        };
+    }
 
-                // Обработка atom-run
-                if (node.tag === 'script' && node.attrs && node.attrs.hasOwnProperty('atom-run')) {
+    _createClientScriptsPlugin(scripts, componentId) {
+        return function(tree) {
+            tree.walk(node => {
+                if (node && node.tag === 'script' && node.attrs && node.attrs.hasOwnProperty('atom-run')) {
                     const scriptContent = node.content ? node.content.join('').trim() : '';
                     if (scriptContent) {
                         scripts.push({
@@ -80,49 +73,57 @@ class Renderer {
                             code: scriptContent
                         });
                     }
-                    return null; // Удаляем узел скрипта
+                    return null;
                 }
-
                 return node;
             });
-
-            // После всех модификаций добавляем ID к найденному корневому узлу
-            if (rootNode) {
-                rootNode.attrs = rootNode.attrs || {};
-                rootNode.attrs['data-component-id'] = componentId;
-            }
-
-            return tree;
         };
     }
-    
+
+    _createAddComponentIdPlugin(componentId) {
+        return function(tree) {
+            let alreadyAdded = false;
+            tree.walk(node => {
+                if (!alreadyAdded && node && typeof node.tag === 'string') {
+                    node.attrs = node.attrs || {};
+                    node.attrs['data-component-id'] = componentId;
+                    alreadyAdded = true;
+                }
+                return node;
+            });
+        };
+    }
+
+    // ИСПРАВЛЕННАЯ, НАДЕЖНАЯ ВЕРСИЯ
     _scopeCss(css, scopeId) {
         if (!css) return '';
         try {
             const ast = csstree.parse(css, { onParseError: (e) => { throw e; } });
             const scopeAttr = `[data-component-id="${scopeId}"]`;
-            // ИСПРАВЛЕНО: Правильно получаем AST для селектора атрибута
-            const scopeAttributeNode = csstree.parse(scopeAttr, { context: 'selector' }).children.head.data;
+            const scopeNode = csstree.parse(scopeAttr, { context: 'selector' }).children.head.data;
 
             csstree.walk(ast, {
-                visit: 'Selector',
                 enter: (node) => {
-                    node.children.forEach(selectorPart => {
-                        const firstChild = selectorPart.children.first();
-                        
-                        if (firstChild && firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                            selectorPart.children.replace(selectorPart.children.head, csstree.clone(scopeAttributeNode));
-                        } else {
-                            selectorPart.children.prependData({ type: 'WhiteSpace', value: ' ' });
-                            selectorPart.children.prepend(csstree.clone(scopeAttributeNode));
-                        }
-                    });
+                    // ЯВНАЯ И СТРОГАЯ ПРОВЕРКА ТИПА УЗЛА
+                    if (node.type !== 'Selector' || node.children.isEmpty()) {
+                        return;
+                    }
+                    
+                    const firstChild = node.children.head.data; 
+
+                    if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
+                        node.children.replace(node.children.head, csstree.clone(scopeNode));
+                    } else {
+                        node.children.prependData({ type: 'WhiteSpace', value: ' ' });
+                        node.children.prepend(csstree.clone(scopeNode));
+                    }
                 }
             });
             return csstree.generate(ast);
         } catch (e) {
-            console.warn(`[Renderer] Failed to scope CSS for ${scopeId}. Error: ${e.message}`);
-            return css;
+            // Убираем вывод в консоль, чтобы не засорять лог
+            // console.warn(`[Renderer] Failed to scope CSS for ${scopeId}. Error: ${e.message}`);
+            return css; 
         }
     }
 
@@ -137,7 +138,9 @@ class Renderer {
         const scripts = [];
         
         const plugins = [
-            this._createHtmlProcessorPlugin(renderContext, scripts, componentId)
+            this._createDirectivesPlugin(renderContext),
+            this._createClientScriptsPlugin(scripts, componentId),
+            this._createAddComponentIdPlugin(componentId)
         ];
 
         let mustacheHtml = Mustache.render(component.template, renderContext);
