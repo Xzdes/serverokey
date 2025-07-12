@@ -1,5 +1,6 @@
 // core/connector-manager.js
 const { JsonConnector } = require('./connectors/json-connector.js');
+const { InMemoryConnector } = require('./connectors/in-memory-connector.js'); // <-- ДОБАВЛЕНО
 
 class ConnectorManager {
     constructor(appPath, manifest) {
@@ -18,7 +19,13 @@ class ConnectorManager {
                     this.connectors[name] = new JsonConnector(name, config, this.appPath);
                     console.log(`[ConnectorManager] Initialized 'json' connector for '${name}'`);
                     break;
-                // NOTE: Future connectors like 'pg' or 'rest' will be added here.
+                
+                // --- ДОБАВЛЕН НОВЫЙ БЛОК ---
+                case 'in-memory':
+                    this.connectors[name] = new InMemoryConnector(name, config);
+                    console.log(`[ConnectorManager] Initialized 'in-memory' connector for '${name}'`);
+                    break;
+
                 default:
                     throw new Error(`Unknown connector type '${config.type}' for connector '${name}'.`);
             }

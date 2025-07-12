@@ -38,7 +38,7 @@ module.exports = {
       initialState: { all: [] } 
     },
     viewState: { 
-      type: 'json',
+      type: 'in-memory',
       initialState: { 
         query: '', 
         filtered: [] 
@@ -62,7 +62,6 @@ module.exports = {
     'GET /': {
       type: 'view',
       layout: 'mainLayout',
-      // НОВОЕ ПОЛЕ: Явно указываем, какие данные нужны для этой страницы.
       reads: ['user', 'receipt', 'viewState'],
       inject: {
         'receipt': 'receipt',
