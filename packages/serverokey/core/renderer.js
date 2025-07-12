@@ -4,10 +4,12 @@ const posthtml = require('posthtml');
 const csstree = require('css-tree');
 
 class Renderer {
-    constructor(assetLoader, manifest, connectorManager) {
+    // --- ИЗМЕНЕНИЕ: Принимаем options в конструкторе ---
+    constructor(assetLoader, manifest, connectorManager, modulePath, options = {}) {
         this.assetLoader = assetLoader;
         this.manifest = manifest;
         this.connectorManager = connectorManager;
+        this.debug = options.debug || false; // Сохраняем флаг
     }
 
     async _getGlobalContext() {
@@ -94,7 +96,6 @@ class Renderer {
         };
     }
 
-    // --- ОКОНЧАТЕЛЬНАЯ И ПРОВЕРЕННАЯ ВЕРСИЯ ---
     _scopeCss(css, scopeId) {
         if (!css || !scopeId) return '';
         
@@ -117,28 +118,20 @@ class Renderer {
             csstree.walk(ast, {
                 visit: 'Selector',
                 enter: (selector) => {
-                    // --- ИСПРАВЛЕНИЕ №1: Используем свойство .isEmpty, а не функцию ---
                     if (!selector.children || selector.children.isEmpty) {
                         return;
                     }
-
-                    // --- ИСПРАВЛЕНИЕ №2: Используем свойство .head.data для доступа к первому узлу ---
                     const firstChild = selector.children.head ? selector.children.head.data : null;
                     if (!firstChild) {
                         return;
                     }
-
-                    // Логика для :host
                     if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                        // Заменяем узел :host на наш атрибут
                         selector.children.replace(selector.children.head, {
                             type: 'ListItem',
                             data: csstree.clone(attributeSelectorNode)
                         });
                         return;
                     }
-
-                    // Логика для исключений (глобальные селекторы, keyframes)
                     const selectorName = firstChild.name ? String(firstChild.name).toLowerCase() : '';
                     if (
                         firstChild.type === 'Percentage' ||
@@ -147,8 +140,6 @@ class Renderer {
                     ) {
                         return;
                     }
-                    
-                    // Добавляем атрибут в начало для всех остальных селекторов
                     selector.children.prependData({ type: 'WhiteSpace', value: ' ' });
                     selector.children.prependData(csstree.clone(attributeSelectorNode));
                 }
@@ -157,7 +148,7 @@ class Renderer {
             return csstree.generate(ast);
         } catch (e) {
             console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Error:`, e);
-            return css; // В случае критического сбоя возвращаем исходный CSS.
+            return css;
         }
     }
 
@@ -182,7 +173,16 @@ class Renderer {
         
         const styles = this._scopeCss(component.style, componentId);
 
-        return { html, styles, scripts };
+        // --- НОВЫЙ БЛОК: Добавляем отладочный HTML-комментарий ---
+        let finalHtml = html;
+        if (this.debug) {
+            const safeContext = JSON.stringify(renderContext)
+                                    .replace(/<!--/g, '<\\!--')
+                                    .replace(/-->/g, '--\\>');
+            finalHtml = `<!-- [DEBUG] Rendered component '${componentName}' with context:\n${safeContext}\n-->\n${html}`;
+        }
+
+        return { html: finalHtml, styles, scripts };
     }
 
     async renderView(routeConfig, globalData) {
@@ -225,8 +225,17 @@ class Renderer {
             : '';
         const clientScriptTag = `<script src="/engine-client.js"></script>`;
         
-        layoutHtml = layoutHtml.replace('</body>', `${scriptsTag}\n${clientScriptTag}\n</body>`);
-
+        // --- НОВЫЙ БЛОК: Добавляем атрибут в body в режиме отладки ---
+        let finalBodyTag = '</body>';
+        if (this.debug) {
+            finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
+            layoutHtml = layoutHtml.replace('<body', '<body data-debug-mode="true"');
+        } else {
+            finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
+        }
+        
+        layoutHtml = layoutHtml.replace('</body>', finalBodyTag);
+        
         return layoutHtml;
     }
 }

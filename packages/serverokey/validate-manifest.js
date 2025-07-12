@@ -5,10 +5,6 @@ const path = require('path');
 
 console.log('🔍 [Validator] Starting manifest validation...');
 
-// --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
-// Мы больше не предполагаем, что приложение называется 'kassa-app'.
-// Мы берем текущую рабочую директорию, из которой был запущен скрипт.
-// process.cwd() вернет 'S:\serverokey\packages\kassa-app-example'
 const appPath = process.cwd(); 
 const manifestPath = path.join(appPath, 'manifest.js');
 
@@ -19,7 +15,6 @@ const C_YELLOW = '\x1b[33m';
 const C_CYAN = '\x1b[36m';
 const C_GRAY = '\x1b[90m';
 
-// ... остальной код файла абсолютно без изменений ...
 
 function getSuggestion(str, validOptions) {
     if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
@@ -60,6 +55,75 @@ function checkFileExists(filePath, category, description) {
     }
     return true;
 }
+
+// --- НОВАЯ ФУНКЦИЯ ПРОВЕРКИ №1 ---
+function validateComputedFields(manifest) {
+    const connectors = manifest.connectors || {};
+    for (const connectorName in connectors) {
+        const connector = connectors[connectorName];
+        if (!Array.isArray(connector.computed)) continue;
+
+        const category = `Connector '${connectorName}'`;
+        const initialStateKeys = Object.keys(connector.initialState || {});
+
+        connector.computed.forEach(rule => {
+            const formula = rule.formula;
+            if (!formula) return;
+            
+            // Простая проверка для sum(items, 'price') и count(items)
+            const match = formula.match(/(?:sum|count)\(([\w\.]+)/);
+            if (match) {
+                const sourceArray = match[1].split('.')[0]; // Берем только первую часть (например, 'items' из 'items, 'price'')
+                if (!initialStateKeys.includes(sourceArray)) {
+                    addIssue('warning', category, `Computed formula "${formula}" uses source array "${sourceArray}" which is not defined in initialState.`, getSuggestion(sourceArray, initialStateKeys));
+                }
+            }
+        });
+    }
+}
+
+// --- НОВАЯ ФУНКЦИЯ ПРОВЕРКИ №2 ---
+function validateActionReads(manifest) {
+    const routes = manifest.routes || {};
+    for (const routeKey in routes) {
+        const route = routes[routeKey];
+        if (route.type !== 'action' || !Array.isArray(route.steps)) continue;
+
+        const category = `Route '${routeKey}'`;
+        const availableReads = new Set(route.reads || []);
+
+        function checkExpression(expression) {
+            if (typeof expression !== 'string') return;
+            // Находим все "слова", которые могут быть переменными
+            const potentialVars = expression.match(/[\w\.]+/g) || [];
+            potentialVars.forEach(v => {
+                // Игнорируем числа и булевы значения
+                if (!isNaN(v) || v === 'true' || v === 'false') return;
+                
+                const rootVar = v.split('.')[0];
+                if (rootVar === 'context' || rootVar === 'body') return; // Игнорируем специальные переменные
+
+                if (!availableReads.has(rootVar)) {
+                    addIssue('error', category, `Expression "${expression}" uses variable "${v}" but its source "${rootVar}" is not listed in 'reads'.`, `Available reads: [${Array.from(availableReads).join(', ')}]`);
+                }
+            });
+        }
+        
+        function traverseSteps(steps) {
+            if (!Array.isArray(steps)) return;
+            steps.forEach(step => {
+                if (step.if) checkExpression(step.if);
+                if (step.then) traverseSteps(step.then);
+                if (step.else) traverseSteps(step.else);
+                if (step.forEach) checkExpression(step.forEach);
+                if (step.steps) traverseSteps(step.steps);
+            });
+        }
+
+        traverseSteps(route.steps);
+    }
+}
+
 
 try {
     if (!fs.existsSync(manifestPath)) {
@@ -138,6 +202,11 @@ try {
             }
         }
     }
+    
+    // --- НОВЫЙ БЛОК: Запускаем новые проверки ---
+    validateComputedFields(manifest);
+    validateActionReads(manifest);
+
 
 } catch (e) {
     addIssue('critical', 'Manifest', `Could not load or parse manifest.js: ${e.message}`);

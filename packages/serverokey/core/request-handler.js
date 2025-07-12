@@ -6,12 +6,14 @@ const { OperationHandler } = require('./operation-handler.js');
 const { ActionEngine } = require('./action-engine.js');
 
 class RequestHandler {
-    constructor(manifest, connectorManager, assetLoader, renderer, modulePath) {
+    // --- ИЗМЕНЕНИЕ: Принимаем options в конструкторе ---
+    constructor(manifest, connectorManager, assetLoader, renderer, modulePath, options = {}) {
         this.manifest = manifest;
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
         this.modulePath = modulePath;
+        this.debug = options.debug || false; // Сохраняем флаг
     }
 
     async handle(req, res) {
@@ -19,8 +21,6 @@ class RequestHandler {
         const routeKey = `${req.method} ${url.pathname}`;
 
         if (routeKey === 'GET /engine-client.js') {
-            // ИСПРАВЛЕНИЕ: Указываем точный путь к файлу, чтобы избежать путаницы.
-            // Файл находится в корне пакета, а не в директории 'core'.
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js'); 
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
@@ -78,10 +78,7 @@ class RequestHandler {
                 });
 
                 const updatedContext = await this.connectorManager.getContext(allDataKeysToRender);
-                // ИСПРАВЛЕНИЕ: Получаем глобальный контекст, чтобы он был доступен в перерисованном компоненте.
                 const globalContext = await this.renderer._getGlobalContext();
-                // ИСПРАВЛЕНИЕ: Добавляем данные из тела запроса (состояние инпута) в контекст для рендеринга.
-                // Это гарантирует, что значение в инпуте сохранится после перерисовки.
                 const renderDataContext = { ...updatedContext, ...body };
                 
                 const componentName = routeConfig.update;
@@ -93,6 +90,13 @@ class RequestHandler {
                     scripts,
                     componentName
                 };
+
+                // --- НОВЫЙ БЛОК: Выводим payload в консоль в режиме отладки ---
+                if (this.debug) {
+                    console.log(`\n🐞 [DEBUG] Action '${routeKey}' completed. Sending payload to update '${componentName}':`);
+                    // Используем console.dir для красивого вывода объекта
+                    console.dir(responsePayload, { depth: 2 });
+                }
                 
                 res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));
             }

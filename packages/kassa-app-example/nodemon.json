@@ -1,0 +1,18 @@
+{
+
+  "watch": [
+    "./app/", 
+    "manifest.js",
+    "server.js"
+  ],
+
+  "ext": "js,json,html,css",
+
+  "ignore": [
+    "./app/data/" 
+  ],
+
+  "verbose": true,
+
+  "delay": "1000"
+}

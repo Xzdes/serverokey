@@ -1,34 +1,30 @@
 // s:\serverokey\packages\serverokey\core\engine-client.js
 
+// --- НОВЫЙ БЛОК: Определяем, включен ли режим отладки ---
+const isDebugMode = document.body.hasAttribute('data-debug-mode');
+
 /**
  * Finds the closest form, collects its data, and includes the triggering button's value.
  * @param {HTMLElement} element - The element that triggered the action.
  * @returns {string} - A JSON string of the form data.
  */
 function getActionBody(element) {
-    // Find the closest form to the element.
     const form = element.closest('form');
-    // Use a plain object to accumulate data.
     const data = {};
 
     if (form) {
-        // If a form is found, use FormData to collect all its input values.
         const formData = new FormData(form);
         for (const [key, value] of formData.entries()) {
             data[key] = value;
         }
     } else if (element.name) {
-        // If no form is found, get the data from the triggering element itself.
-        // This is crucial for standalone inputs with atom-action.
         data[element.name] = element.value;
     }
 
-    // If the trigger was a button with a name and value, its value should be included.
     if (element.tagName === 'BUTTON' && element.name) {
         data[element.name] = element.value;
     }
 
-    // Convert the final data object to a JSON string.
     return JSON.stringify(data);
 }
 
@@ -47,12 +43,10 @@ function updateStyles(componentName, newStyles) {
     if (!styleTag) {
         styleTag = document.createElement('style');
         styleTag.id = styleId;
-        // Use the same data-attribute as the server-side renderer for consistency.
         styleTag.setAttribute('data-component-name', componentName);
         document.head.appendChild(styleTag);
     }
 
-    // Update content only if it has actually changed to prevent unnecessary style recalculations.
     if (styleTag.textContent !== newStyles) {
         styleTag.textContent = newStyles;
     }
@@ -67,9 +61,6 @@ function executeScripts(scripts) {
 
     scripts.forEach(scriptInfo => {
         try {
-            // WARNING: Using new Function() can be a security risk if the script content
-            // comes from an untrusted source. In this architecture, it's assumed to be
-            // trusted code from the component itself.
             new Function(scriptInfo.code)();
         } catch (e) {
             console.error(`[Engine] Error executing script for component ${scriptInfo.id}:`, e);
@@ -85,7 +76,6 @@ async function handleAction(event) {
     const element = event.target.closest('[atom-action]');
     if (!element) return;
 
-    // Check if the event type matches the one specified in atom-event, default to 'click'.
     const requiredEventType = element.getAttribute('atom-event') || 'click';
     if (event.type !== requiredEventType) return;
 
@@ -102,6 +92,18 @@ async function handleAction(event) {
     const body = getActionBody(element);
 
     try {
+        // --- НОВЫЙ БЛОК: Логирование в режиме отладки ---
+        if (isDebugMode) {
+            console.groupCollapsed(`[DEBUG] Action Triggered: ${action}`);
+            console.log('DOM Element:', element);
+            try {
+                console.log('Body Sent:', JSON.parse(body));
+            } catch {
+                console.log('Body Sent (raw):', body);
+            }
+            console.groupEnd();
+        }
+        
         const response = await fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
@@ -114,9 +116,15 @@ async function handleAction(event) {
         const targetElement = document.querySelector(targetSelector);
         if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);
 
-        // --- УЛУЧШЕНИЕ: Сохраняем фокус и позицию курсора ---
+        // --- НОВЫЙ БЛОК: Логирование в режиме отладки ---
+        if (isDebugMode) {
+            console.groupCollapsed(`[DEBUG] Received Payload for: ${action}`);
+            console.log('Target Element:', targetElement);
+            console.log('Payload:', payload);
+            console.groupEnd();
+        }
+
         const activeElement = document.activeElement;
-        // Проверяем, что активный элемент находится внутри обновляемого блока и у него есть ID
         const shouldPreserveFocus = activeElement && targetElement.contains(activeElement) && activeElement.id;
         const activeElementId = shouldPreserveFocus ? activeElement.id : null;
         const selectionStart = activeElement?.selectionStart ?? null;
@@ -126,12 +134,10 @@ async function handleAction(event) {
         targetElement.innerHTML = payload.html;
         executeScripts(payload.scripts);
 
-        // --- УЛУЧШЕНИЕ: Восстанавливаем фокус и позицию курсора ---
         if (activeElementId) {
             const newActiveElement = document.getElementById(activeElementId);
             if (newActiveElement) {
                 newActiveElement.focus();
-                // Восстанавливаем позицию курсора для текстовых полей
                 if (selectionStart !== null && typeof newActiveElement.setSelectionRange === 'function') {
                     newActiveElement.setSelectionRange(selectionStart, selectionEnd);
                 }
@@ -142,10 +148,13 @@ async function handleAction(event) {
     }
 }
 
-// Attach event listeners once the DOM is ready.
 document.addEventListener('DOMContentLoaded', () => {
     const supportedEvents = ['click', 'input', 'change', 'submit'];
     supportedEvents.forEach(eventType => {
         document.body.addEventListener(eventType, handleAction, true);
     });
+
+    if (isDebugMode) {
+        console.log('✔️ [Engine] Client initialized in Debug Mode.');
+    }
 });
