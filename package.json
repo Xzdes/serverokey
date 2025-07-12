@@ -1,12 +1,16 @@
 {
-  "name": "serverokey",
-  "version": "3.0.0",
-  "main": "engine-client.js",
+  "name": "serverokey-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepository for the Serverokey engine and its example applications.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start:example": "npm start --workspace=kassa-app-example",
+    "validate:example": "npm run validate --workspace=kassa-app-example",
+    "bootstrap": "npm install"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": ""
+  "workspaces": [
+    "packages/*"
+  ],
+  "author": "Xzdes <xzdes@yandex.ru>",
+  "license": "MIT"
 }

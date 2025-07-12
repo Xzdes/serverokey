@@ -1,10 +1,15 @@
+#!/usr/bin/env node
 // validate-manifest.js
 const fs = require('fs');
 const path = require('path');
 
 console.log('🔍 [Validator] Starting manifest validation...');
 
-const appPath = path.join(__dirname, 'kassa-app');
+// --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
+// Мы больше не предполагаем, что приложение называется 'kassa-app'.
+// Мы берем текущую рабочую директорию, из которой был запущен скрипт.
+// process.cwd() вернет 'S:\serverokey\packages\kassa-app-example'
+const appPath = process.cwd(); 
 const manifestPath = path.join(appPath, 'manifest.js');
 
 const issues = [];
@@ -13,6 +18,8 @@ const C_RED = '\x1b[31m';
 const C_YELLOW = '\x1b[33m';
 const C_CYAN = '\x1b[36m';
 const C_GRAY = '\x1b[90m';
+
+// ... остальной код файла абсолютно без изменений ...
 
 function getSuggestion(str, validOptions) {
     if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
@@ -55,6 +62,10 @@ function checkFileExists(filePath, category, description) {
 }
 
 try {
+    if (!fs.existsSync(manifestPath)) {
+        throw new Error(`manifest.js not found in the current directory: ${appPath}`);
+    }
+
     const manifest = require(manifestPath);
     const connectorNames = Object.keys(manifest.connectors || {});
     const componentNames = Object.keys(manifest.components || {});

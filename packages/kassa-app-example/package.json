@@ -1,0 +1,15 @@
+{
+  "name": "kassa-app-example",
+  "version": "1.0.0",
+  "description": "Example application for the Serverokey engine",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "validate": "serverokey-validate"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.0",
+    "serverokey": "file:../serverokey"
+  }
+}

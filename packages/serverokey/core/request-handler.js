@@ -6,11 +6,12 @@ const { OperationHandler } = require('./operation-handler.js');
 const { ActionEngine } = require('./action-engine.js');
 
 class RequestHandler {
-    constructor(manifest, connectorManager, assetLoader, renderer) {
+    constructor(manifest, connectorManager, assetLoader, renderer, modulePath) {
         this.manifest = manifest;
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
+        this.modulePath = modulePath;
     }
 
     async handle(req, res) {
@@ -18,7 +19,7 @@ class RequestHandler {
         const routeKey = `${req.method} ${url.pathname}`;
 
         if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.join(__dirname, '..', 'engine-client.js');
+            const clientScriptPath = path.join(this.modulePath, 'engine-client.js'); 
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
         }

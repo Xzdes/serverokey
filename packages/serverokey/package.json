@@ -1,0 +1,33 @@
+{
+  "name": "serverokey",
+  "version": "4.0.0",
+  "description": "An atomic, declarative Node.js engine for building web applications with LLMs.",
+  "main": "index.js",
+  "bin": {
+    "serverokey-validate": "./validate-manifest.js"
+  },
+  "files": [
+    "core/",
+    "engine-client.js",
+    "index.js",
+    "validate-manifest.js"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "declarative",
+    "fullstack",
+    "engine",
+    "llm",
+    "html-over-the-wire",
+    "backend",
+    "nodejs"
+  ],
+  "author": "Xzdes <xzdes@yandex.ru>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xzdes/serverokey.git"
+  }
+}
