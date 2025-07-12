@@ -94,45 +94,76 @@ class Renderer {
         };
     }
 
-    // ИСПРАВЛЕННАЯ, НАДЕЖНАЯ ВЕРСИЯ
+    // УЛУЧШЕННАЯ И БОЛЕЕ НАДЕЖНАЯ ВЕРСИЯ
     _scopeCss(css, scopeId) {
         if (!css) return '';
         try {
-            const ast = csstree.parse(css, { onParseError: (e) => { throw e; } });
+            const ast = csstree.parse(css, { onParseError: (e) => { /* Игнорируем ошибки парсинга CSS, но это может привести к невалидному AST */ } });
             const scopeAttr = `[data-component-id="${scopeId}"]`;
-            const scopeNode = csstree.parse(scopeAttr, { context: 'selector' }).children.head.data;
+            // ИСПРАВЛЕНИЕ: Используем csstree.find для надежного поиска узла.
+            // Это решает ошибку "children.first is not a function" и делает код более устойчивым.
+            const selectorAst = csstree.parse(scopeAttr, { context: 'selector' });
+            const attributeSelectorNode = csstree.find(selectorAst, node => node.type === 'AttributeSelector');
+
+            if (!attributeSelectorNode) {
+                // Этого не должно произойти, но на всякий случай добавим защиту.
+                console.warn(`[Renderer] Could not create a scope attribute node for ${scopeId}.`);
+                return css;
+            }
 
             csstree.walk(ast, {
+                visit: 'Selector',
                 enter: (node) => {
-                    // ЯВНАЯ И СТРОГАЯ ПРОВЕРКА ТИПА УЗЛА
-                    if (node.type !== 'Selector' || node.children.isEmpty()) {
+                    // ЗАЩИТА: Проверяем, что node.children является валидным списком css-tree.
+                    // Из-за игнорирования ошибок парсинга, структура AST может быть нарушена.
+                    if (!node.children || typeof node.children.isEmpty !== 'function' || node.children.isEmpty()) {
                         return;
                     }
                     
-                    const firstChild = node.children.head.data; 
-
-                    if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                        node.children.replace(node.children.head, csstree.clone(scopeNode));
-                    } else {
-                        node.children.prependData({ type: 'WhiteSpace', value: ' ' });
-                        node.children.prepend(csstree.clone(scopeNode));
+                    const firstChild = node.children.head ? node.children.head.data : null;
+                    if (!firstChild) {
+                        return;
                     }
+
+                    // :host заменяется на атрибут компонента
+                    if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
+                        // ОКОНЧАТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Используем правильный метод API `css-tree`.
+                        // `createItem` оборачивает узел в `ListItem`, который ожидает метод `replace`.
+                        node.children.replace(node.children.head, node.children.createItem(csstree.clone(attributeSelectorNode)));
+                        return;
+                    }
+
+                    // Не добавляем скоуп к селекторам анимаций (@keyframes) и глобальным селекторам (html, body, :root)
+                    const selectorName = firstChild.name ? firstChild.name.toLowerCase() : '';
+                    if (
+                        firstChild.type === 'Percentage' ||
+                        (firstChild.type === 'TypeSelector' && (selectorName === 'from' || selectorName === 'to' || selectorName === 'html' || selectorName === 'body')) ||
+                        (firstChild.type === 'PseudoClassSelector' && selectorName === 'root')
+                    ) {
+                        return;
+                    }
+                    
+                    // ИСПРАВЛЕНИЕ: Используем prependList для атомарного и корректного добавления.
+                    // Это предотвращает ошибки при манипуляции списком.
+                    const listToPrepend = new csstree.List();
+                    listToPrepend.appendData(csstree.clone(attributeSelectorNode));
+                    listToPrepend.appendData({ type: 'WhiteSpace', value: ' ' });
+                    node.children.prependList(listToPrepend);
                 }
             });
             return csstree.generate(ast);
         } catch (e) {
-            // Убираем вывод в консоль, чтобы не засорять лог
-            // console.warn(`[Renderer] Failed to scope CSS for ${scopeId}. Error: ${e.message}`);
-            return css; 
+            // ИСПРАВЛЕНИЕ: Прекращаем "тихое" подавление ошибок. Если скоупинг не удался, это критическая ошибка.
+            console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Error:`, e);
+            throw new Error(`CSS scoping failed for component ${scopeId}`);
         }
     }
 
-    async renderComponent(componentName, dataContext = {}) {
+    async renderComponent(componentName, dataContext = {}, globalContext = {}) {
         const component = this.assetLoader.getComponent(componentName);
         if (!component) throw new Error(`Component "${componentName}" not found.`);
 
         const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
-        const globalContext = await this._getGlobalContext();
         const renderContext = { ...globalContext, ...dataContext, _internal: { id: componentId } };
         
         const scripts = [];
@@ -156,7 +187,9 @@ class Renderer {
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
 
-        const allStyles = new Set();
+        const globalContext = await this._getGlobalContext();
+
+        const allStyleTags = [];
         const allScripts = [];
         const injectedHtml = {};
 
@@ -166,21 +199,22 @@ class Renderer {
         for (const placeholderName in routeConfig.inject) {
             const componentName = routeConfig.inject[placeholderName];
             if (componentName) {
-                const { html, styles, scripts } = await this.renderComponent(componentName, renderData);
-                if (styles) allStyles.add(styles);
+                const { html, styles, scripts } = await this.renderComponent(componentName, renderData, globalContext);
+                if (styles) {
+                    allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
+                }
                 if (scripts) allScripts.push(...scripts);
                 injectedHtml[placeholderName] = `<div id="${componentName}-container">${html}</div>`;
             }
         }
 
-        const layoutContext = await this._getGlobalContext();
         let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
             return injectedHtml[placeholderName] || `<!-- Placeholder for ${placeholderName} -->`;
         });
-        layoutHtml = Mustache.render(layoutHtml, layoutContext);
+        layoutHtml = Mustache.render(layoutHtml, globalContext);
 
-        if (allStyles.size > 0) {
-            const styleTag = `<style>\n${[...allStyles].join('\n')}\n</style>`;
+        if (allStyleTags.length > 0) {
+            const styleTag = allStyleTags.join('\n');
             layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
         }
 

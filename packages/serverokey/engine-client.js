@@ -1,124 +1,151 @@
-// engine-client.js
-let debounceTimer;
+// s:\serverokey\packages\serverokey\core\engine-client.js
 
-function executeClientScripts(containerElement) {
-    const scriptTag = containerElement.querySelector('[data-atom-scripts]');
-    if (!scriptTag) return;
+/**
+ * Finds the closest form, collects its data, and includes the triggering button's value.
+ * @param {HTMLElement} element - The element that triggered the action.
+ * @returns {string} - A JSON string of the form data.
+ */
+function getActionBody(element) {
+    // Find the closest form to the element.
+    const form = element.closest('form');
+    // Use a plain object to accumulate data.
+    const data = {};
 
-    try {
-        const scriptsToRun = JSON.parse(scriptTag.textContent);
-        
-        scriptsToRun.forEach(scriptInfo => {
-            const componentElement = document.querySelector(`[data-component-id="${scriptInfo.id}"]`);
-            if (componentElement) {
-                try {
-                    // Создаем и вызываем функцию, передавая ей корневой элемент компонента как 'this'
-                    new Function(scriptInfo.code).call(componentElement);
-                } catch (e) {
-                    console.error(`[AtomEngine] Error executing client script for component ${scriptInfo.id}:`, e);
-                }
-            }
-        });
-    } catch (e) {
-        console.error('[AtomEngine] Failed to parse client scripts JSON:', e);
+    if (form) {
+        // If a form is found, use FormData to collect all its input values.
+        const formData = new FormData(form);
+        for (const [key, value] of formData.entries()) {
+            data[key] = value;
+        }
+    } else if (element.name) {
+        // If no form is found, get the data from the triggering element itself.
+        // This is crucial for standalone inputs with atom-action.
+        data[element.name] = element.value;
     }
-    
-    scriptTag.remove(); // Удаляем тег после выполнения
+
+    // If the trigger was a button with a name and value, its value should be included.
+    if (element.tagName === 'BUTTON' && element.name) {
+        data[element.name] = element.value;
+    }
+
+    // Convert the final data object to a JSON string.
+    return JSON.stringify(data);
 }
 
-async function performAction(actionElement) {
-    const [method, url] = actionElement.getAttribute('atom-action').split(' ');
-    const targetSelector = actionElement.getAttribute('atom-target');
-    const targetElement = targetSelector ? document.querySelector(targetSelector) : null;
-    
-    if (!targetElement) {
-        console.error(`[AtomEngine] Target element "${targetSelector}" not found.`);
+/**
+ * Updates the component's styles in the document's <head>.
+ * Creates a <style> tag if one doesn't exist for the component.
+ * @param {string} componentName - The name of the component.
+ * @param {string} newStyles - The new CSS string.
+ */
+function updateStyles(componentName, newStyles) {
+    if (!newStyles || !componentName) return;
+
+    const styleId = `style-for-${componentName}`;
+    let styleTag = document.getElementById(styleId);
+
+    if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = styleId;
+        // Use the same data-attribute as the server-side renderer for consistency.
+        styleTag.setAttribute('data-component-name', componentName);
+        document.head.appendChild(styleTag);
+    }
+
+    // Update content only if it has actually changed to prevent unnecessary style recalculations.
+    if (styleTag.textContent !== newStyles) {
+        styleTag.textContent = newStyles;
+    }
+}
+
+/**
+ * Executes client-side scripts that are part of a component's payload.
+ * @param {Array<Object>} scripts - An array of script objects, e.g., [{ id, code }].
+ */
+function executeScripts(scripts) {
+    if (!scripts || !Array.isArray(scripts)) return;
+
+    scripts.forEach(scriptInfo => {
+        try {
+            // WARNING: Using new Function() can be a security risk if the script content
+            // comes from an untrusted source. In this architecture, it's assumed to be
+            // trusted code from the component itself.
+            new Function(scriptInfo.code)();
+        } catch (e) {
+            console.error(`[Engine] Error executing script for component ${scriptInfo.id}:`, e);
+        }
+    });
+}
+
+/**
+ * Main action handler for declarative events.
+ * @param {Event} event - The DOM event.
+ */
+async function handleAction(event) {
+    const element = event.target.closest('[atom-action]');
+    if (!element) return;
+
+    // Check if the event type matches the one specified in atom-event, default to 'click'.
+    const requiredEventType = element.getAttribute('atom-event') || 'click';
+    if (event.type !== requiredEventType) return;
+
+    event.preventDefault();
+
+    const action = element.getAttribute('atom-action');
+    const targetSelector = element.getAttribute('atom-target');
+    if (!action || !targetSelector) {
+        console.error('[Engine] Missing atom-action or atom-target attribute.', element);
         return;
     }
 
-    const form = actionElement.closest('form');
-    let body = {};
-    if (form) {
-        const formData = new FormData(form);
-        if (actionElement.tagName === 'BUTTON' && actionElement.name && actionElement.value) {
-            formData.append(actionElement.name, actionElement.value);
-        }
-        formData.forEach((value, key) => { body[key] = value; });
-    } else if (actionElement.name && actionElement.value) {
-        body[actionElement.name] = actionElement.value;
-    }
+    const [method, url] = action.split(' ');
+    const body = getActionBody(element);
 
     try {
-        const activeElement = document.activeElement;
-        let activeElementId = null;
-        let selectionStart, selectionEnd;
-
-        if (activeElement && targetElement.contains(activeElement) && activeElement.id) {
-            activeElementId = activeElement.id;
-            if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') {
-                selectionStart = activeElement.selectionStart;
-                selectionEnd = activeElement.selectionEnd;
-            }
-        }
-
         const response = await fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
-            body: Object.keys(body).length ? JSON.stringify(body) : null
+            body: body
         });
 
-        if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+        if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 
-        const newHtml = await response.text();
-        targetElement.innerHTML = newHtml;
+        const payload = await response.json();
+        const targetElement = document.querySelector(targetSelector);
+        if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);
 
-        // ВЫПОЛНЯЕМ КЛИЕНТСКИЕ СКРИПТЫ
-        executeClientScripts(targetElement);
+        // --- УЛУЧШЕНИЕ: Сохраняем фокус и позицию курсора ---
+        const activeElement = document.activeElement;
+        // Проверяем, что активный элемент находится внутри обновляемого блока и у него есть ID
+        const shouldPreserveFocus = activeElement && targetElement.contains(activeElement) && activeElement.id;
+        const activeElementId = shouldPreserveFocus ? activeElement.id : null;
+        const selectionStart = activeElement?.selectionStart ?? null;
+        const selectionEnd = activeElement?.selectionEnd ?? null;
 
+        updateStyles(payload.componentName, payload.styles);
+        targetElement.innerHTML = payload.html;
+        executeScripts(payload.scripts);
+
+        // --- УЛУЧШЕНИЕ: Восстанавливаем фокус и позицию курсора ---
         if (activeElementId) {
-            const elementToFocus = document.getElementById(activeElementId);
-            if (elementToFocus) {
-                elementToFocus.focus();
-                if (typeof selectionStart !== 'undefined') {
-                    elementToFocus.setSelectionRange(selectionStart, selectionEnd);
+            const newActiveElement = document.getElementById(activeElementId);
+            if (newActiveElement) {
+                newActiveElement.focus();
+                // Восстанавливаем позицию курсора для текстовых полей
+                if (selectionStart !== null && typeof newActiveElement.setSelectionRange === 'function') {
+                    newActiveElement.setSelectionRange(selectionStart, selectionEnd);
                 }
             }
         }
-
-    } catch (err) {
-        console.error(`[AtomEngine] Action failed:`, err);
-        targetElement.style.outline = '2px solid red';
+    } catch (error) {
+        console.error(`[Engine] Action failed for "${action}":`, error);
     }
 }
 
-function handleEvent(e) {
-    const actionElement = e.target.closest('[atom-action]');
-    if (!actionElement) return;
-
-    const triggerEvent = actionElement.getAttribute('atom-event') || (actionElement.tagName === 'FORM' ? 'submit' : 'click');
-
-    if (e.type !== triggerEvent) return;
-    
-    if (e.type === 'click' || e.type === 'submit') {
-        e.preventDefault();
-    }
-
-    if (e.type === 'input') {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            performAction(actionElement);
-        }, 300);
-    } else {
-        performAction(actionElement);
-    }
-}
-
-// Слушаем события на уровне документа
-document.addEventListener('click', handleEvent);
-document.addEventListener('submit', handleEvent); // Добавляем submit
-document.addEventListener('input', handleEvent);
-
-// Выполняем скрипты при первоначальной загрузке страницы
+// Attach event listeners once the DOM is ready.
 document.addEventListener('DOMContentLoaded', () => {
-    executeClientScripts(document.body);
+    const supportedEvents = ['click', 'input', 'change', 'submit'];
+    supportedEvents.forEach(eventType => {
+        document.body.addEventListener(eventType, handleAction, true);
+    });
 });

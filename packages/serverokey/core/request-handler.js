@@ -19,7 +19,9 @@ class RequestHandler {
         const routeKey = `${req.method} ${url.pathname}`;
 
         if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.join(this.modulePath, 'engine-client.js'); 
+            // ИСПРАВЛЕНИЕ: Указываем точный путь к файлу, чтобы избежать путаницы.
+            // Файл находится в корне пакета, а не в директории 'core'.
+            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js'); 
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
         }
@@ -76,18 +78,23 @@ class RequestHandler {
                 });
 
                 const updatedContext = await this.connectorManager.getContext(allDataKeysToRender);
+                // ИСПРАВЛЕНИЕ: Получаем глобальный контекст, чтобы он был доступен в перерисованном компоненте.
+                const globalContext = await this.renderer._getGlobalContext();
+                // ИСПРАВЛЕНИЕ: Добавляем данные из тела запроса (состояние инпута) в контекст для рендеринга.
+                // Это гарантирует, что значение в инпуте сохранится после перерисовки.
+                const renderDataContext = { ...updatedContext, ...body };
                 
                 const componentName = routeConfig.update;
-                // Мы получаем `styles` из рендера, но больше их не используем в ответе
-                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, updatedContext);
+                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, renderDataContext, globalContext);
                 
-                // ИСПРАВЛЕНИЕ: styleTag удален из финального HTML
-                const scriptsTag = scripts.length > 0 
-                    ? `<script type="application/json" data-atom-scripts>${JSON.stringify(scripts)}</script>`
-                    : '';
-                const finalHtml = `${html}${scriptsTag}`;
-
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(finalHtml);
+                const responsePayload = {
+                    html,
+                    styles,
+                    scripts,
+                    componentName
+                };
+                
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));
             }
         } catch (error) {
             console.error(`[Engine] Error processing route ${routeKey}:`, error);
