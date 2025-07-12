@@ -127,9 +127,10 @@ class Renderer {
 
                     // :host заменяется на атрибут компонента
                     if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                        // ОКОНЧАТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Используем правильный метод API `css-tree`.
-                        // `createItem` оборачивает узел в `ListItem`, который ожидает метод `replace`.
-                        node.children.replace(node.children.head, node.children.createItem(csstree.clone(attributeSelectorNode)));
+                        // ОКОНЧАТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Заменяем :host на атрибут компонента.
+                        // Вместо сложного `replace`, удаляем узел :host и добавляем атрибут в начало.
+                        node.children.remove(node.children.head);
+                        node.children.prepend(node.children.createItem(csstree.clone(attributeSelectorNode)));
                         return;
                     }
 
