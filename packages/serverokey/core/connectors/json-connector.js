@@ -10,6 +10,8 @@ class JsonConnector {
         this.appPath = appPath;
         this.filePath = path.join(this.appPath, 'app', 'data', `${this.name}.json`);
         this.data = null;
+        this.writeQueue = [];
+        this.isWriting = false;
     }
 
     async read() {
@@ -20,9 +22,31 @@ class JsonConnector {
     }
 
     async write(newData) {
-        this.data = newData;
-        this._runComputations();
-        await this.save();
+        return new Promise((resolve, reject) => {
+            this.writeQueue.push({ data: newData, resolve, reject });
+            this._processQueue();
+        });
+    }
+
+    async _processQueue() {
+        if (this.isWriting || this.writeQueue.length === 0) {
+            return;
+        }
+
+        this.isWriting = true;
+        const { data, resolve, reject } = this.writeQueue.shift();
+
+        try {
+            this.data = data;
+            this._runComputations();
+            await this.save();
+            resolve();
+        } catch (error) {
+            reject(error);
+        } finally {
+            this.isWriting = false;
+            this._processQueue();
+        }
     }
     
     async load() {

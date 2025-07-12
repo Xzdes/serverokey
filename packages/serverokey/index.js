@@ -15,12 +15,15 @@ function createServer(appPath) {
 
   const manifest = loadManifest(appPath);
   
+  // Определяем надежный путь к корню пакета serverokey
+  const modulePath = __dirname; 
+  
   const connectorManager = new ConnectorManager(appPath, manifest);
   const assetLoader = new AssetLoader(appPath, manifest);
-  const renderer = new Renderer(assetLoader, manifest, connectorManager);
+  // Передаем этот надежный путь в конструктор Renderer
+  const renderer = new Renderer(assetLoader, manifest, connectorManager, modulePath);
 
-  // Передаем путь к самому модулю, чтобы он мог найти engine-client.js
-  const modulePath = __dirname; 
+  // RequestHandler уже получает этот путь и работает корректно
   const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, renderer, modulePath);
 
   const server = http.createServer(requestHandler.handle.bind(requestHandler));

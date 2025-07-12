@@ -38,6 +38,8 @@ module.exports = {
       initialState: { all: [] } 
     },
     viewState: { 
+      // для теста работы json или in-memory браузерная память
+      // type: 'json', 
       type: 'in-memory',
       initialState: { 
         query: '', 

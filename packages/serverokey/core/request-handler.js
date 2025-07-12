@@ -96,10 +96,34 @@ class RequestHandler {
     }
 
     _parseBody(req) {
-        return new Promise(resolve => {
-            let data = '';
-            req.on('data', chunk => data += chunk);
-            req.on('end', () => resolve(JSON.parse(data || '{}')));
+        const MAX_BODY_SIZE = 1e6; // 1MB
+
+        return new Promise((resolve, reject) => {
+            let body = '';
+            let size = 0;
+
+            req.on('data', chunk => {
+                size += chunk.length;
+                if (size > MAX_BODY_SIZE) {
+                    console.warn(`[Engine] Request body size limit exceeded (${MAX_BODY_SIZE} bytes).`);
+                    req.socket.destroy(); 
+                    reject(new Error('Payload Too Large'));
+                    return; 
+                }
+                body += chunk.toString();
+            });
+
+            req.on('end', () => {
+                try {
+                    resolve(body ? JSON.parse(body) : {});
+                } catch (e) {
+                    reject(new Error('Invalid JSON in request body'));
+                }
+            });
+
+            req.on('error', err => {
+                reject(err);
+            });
         });
     }
 }
