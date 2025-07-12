@@ -1,4 +1,4 @@
-// validate-manifest.js (с подсказками)
+// validate-manifest.js
 const fs = require('fs');
 const path = require('path');
 
@@ -14,7 +14,6 @@ const C_YELLOW = '\x1b[33m';
 const C_CYAN = '\x1b[36m';
 const C_GRAY = '\x1b[90m';
 
-// Простая функция для нахождения "похожих" строк (расстояние Левенштейна <= 2)
 function getSuggestion(str, validOptions) {
     if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
     for (const option of validOptions) {
@@ -57,13 +56,13 @@ function checkFileExists(filePath, category, description) {
 
 try {
     const manifest = require(manifestPath);
-    const dataSources = Object.keys(manifest.data || {});
+    const connectorNames = Object.keys(manifest.connectors || {});
     const componentNames = Object.keys(manifest.components || {});
 
     // 1. Validate 'globals' section
-    (manifest.globals?.injectData || []).forEach(ds => {
-        if(!dataSources.includes(ds)) {
-             addIssue('error', 'Globals', `Injected data source '${ds}' is not defined in 'manifest.data'.`, getSuggestion(ds, dataSources));
+    (manifest.globals?.injectData || []).forEach(name => {
+        if(!connectorNames.includes(name)) {
+             addIssue('error', 'Globals', `Injected connector '${name}' is not defined in 'manifest.connectors'.`, getSuggestion(name, connectorNames));
         }
     });
 
@@ -88,6 +87,10 @@ try {
         const category = `Route '${routeKey}'`;
 
         if (route.type === 'view') {
+            (route.reads || []).forEach(name => {
+                if (!connectorNames.includes(name)) addIssue('error', category, `Read connector '${name}' is not defined in 'manifest.connectors'.`, getSuggestion(name, connectorNames));
+            });
+
             if (!componentNames.includes(route.layout)) {
                 addIssue('error', category, `Layout component '${route.layout}' is not defined in 'manifest.components'.`, getSuggestion(route.layout, componentNames));
             }
@@ -98,11 +101,11 @@ try {
                 }
             }
         } else if (route.type === 'action') {
-            (route.reads || []).forEach(ds => {
-                if (!dataSources.includes(ds)) addIssue('error', category, `Read data source '${ds}' is not defined in 'manifest.data'.`, getSuggestion(ds, dataSources));
+            (route.reads || []).forEach(name => {
+                if (!connectorNames.includes(name)) addIssue('error', category, `Read connector '${name}' is not defined in 'manifest.connectors'.`, getSuggestion(name, connectorNames));
             });
-            (route.writes || []).forEach(ds => {
-                if (!dataSources.includes(ds)) addIssue('error', category, `Write data source '${ds}' is not defined in 'manifest.data'.`, getSuggestion(ds, dataSources));
+            (route.writes || []).forEach(name => {
+                if (!connectorNames.includes(name)) addIssue('error', category, `Write connector '${name}' is not defined in 'manifest.connectors'.`, getSuggestion(name, connectorNames));
             });
              if (route.update && !componentNames.includes(route.update)) {
                 addIssue('error', category, `Update component '${route.update}' is not defined in 'manifest.components'.`, getSuggestion(route.update, componentNames));

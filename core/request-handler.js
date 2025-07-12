@@ -2,13 +2,13 @@
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
-const { DataManipulator } = require('./data-manipulator.js');
-const { ActionEngine } = require('./action-engine.js'); // Обновленный импорт
+const { OperationHandler } = require('./operation-handler.js');
+const { ActionEngine } = require('./action-engine.js');
 
 class RequestHandler {
-    constructor(manifest, dataManager, assetLoader, renderer) {
+    constructor(manifest, connectorManager, assetLoader, renderer) {
         this.manifest = manifest;
-        this.dataManager = dataManager;
+        this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
     }
@@ -18,7 +18,7 @@ class RequestHandler {
         const routeKey = `${req.method} ${url.pathname}`;
 
         if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.join(__dirname, '..', 'engine-client.js'); // Исправлен путь
+            const clientScriptPath = path.join(__dirname, '..', 'engine-client.js');
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
         }
@@ -31,13 +31,15 @@ class RequestHandler {
         
         try {
             if (routeConfig.type === 'view') {
-                const html = this.renderer.renderView(routeConfig, this.dataManager.data);
+                const globalDataKeys = this.manifest.globals?.injectData || [];
+                const globalDataContext = await this.connectorManager.getContext(globalDataKeys);
+                const html = await this.renderer.renderView(routeConfig, globalDataContext);
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
             }
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                const context = this.dataManager.getContext(routeConfig.reads);
+                const context = await this.connectorManager.getContext(routeConfig.reads);
                 context.body = body;
 
                 let finalContext = context;
@@ -45,11 +47,11 @@ class RequestHandler {
                 if (routeConfig.steps) {
                     const engine = new ActionEngine(context);
                     await engine.run(routeConfig.steps);
-                    finalContext = engine.context; // Получаем измененный контекст из движка
+                    finalContext = engine.context;
                 } else if (routeConfig.manipulate) {
-                    const manipulator = new DataManipulator(context, this.assetLoader);
-                    manipulator.execute(routeConfig.manipulate);
-                    finalContext = manipulator.context;
+                    const handler = new OperationHandler(context, this.assetLoader);
+                    handler.execute(routeConfig.manipulate);
+                    finalContext = handler.context;
                 } else if (routeConfig.handler) {
                     const handler = this.assetLoader.getAction(routeConfig.handler);
                     handler(context, body);
@@ -60,15 +62,25 @@ class RequestHandler {
                 
                 delete finalContext.body;
 
-                routeConfig.writes.forEach(key => {
-                    this.dataManager.updateAndSave(key, finalContext[key]);
+                for (const key of routeConfig.writes) {
+                    const connector = this.connectorManager.getConnector(key);
+                    await connector.write(finalContext[key]);
+                }
+
+                const allDataKeysToRender = this.manifest.globals?.injectData || [];
+                // Добавляем данные, которые были прочитаны в экшене, чтобы они были доступны для рендера
+                routeConfig.reads.forEach(key => {
+                    if (!allDataKeysToRender.includes(key)) {
+                        allDataKeysToRender.push(key);
+                    }
                 });
 
+                const updatedContext = await this.connectorManager.getContext(allDataKeysToRender);
+                
                 const componentName = routeConfig.update;
-                const { html, styles, scripts } = this.renderer.renderComponent(componentName, this.dataManager.data);
+                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, updatedContext);
                 
                 const styleTag = styles ? `<style>${styles}</style>` : '';
-                // Встраиваем скрипты в специальный тег, который клиентский JS сможет прочитать
                 const scriptsTag = scripts.length > 0 
                     ? `<script type="application/json" data-atom-scripts>${JSON.stringify(scripts)}</script>`
                     : '';

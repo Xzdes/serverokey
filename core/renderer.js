@@ -2,32 +2,30 @@
 const Mustache = require('./mustache.js');
 
 class Renderer {
-    constructor(assetLoader, manifest, dataManager) {
+    constructor(assetLoader, manifest, connectorManager) {
         this.assetLoader = assetLoader;
         this.manifest = manifest;
-        this.dataManager = dataManager;
-        this.globalContext = this._createGlobalContext();
-        Mustache.escape = function(text) { return text; };
+        this.connectorManager = connectorManager;
     }
 
-    _createGlobalContext() {
+    async _getGlobalContext() {
         const context = {};
         const globalsConfig = this.manifest.globals;
         if (!globalsConfig) return context;
+
         for (const key in globalsConfig) {
             if (key !== 'injectData') {
                 context[key] = globalsConfig[key];
             }
         }
+
         if (Array.isArray(globalsConfig.injectData)) {
-            globalsConfig.injectData.forEach(dataKey => {
-                context[dataKey] = this.dataManager.get(dataKey);
-            });
+            const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
+            Object.assign(context, injectedData);
         }
-        // Добавляем хелпер asJSON
+        
         context.asJSON = (data) => {
             if (data === undefined) return 'null';
-            // Экранирование для предотвращения XSS и разрыва тега script
             return JSON.stringify(data)
                 .replace(/</g, '\\u003c')
                 .replace(/>/g, '\\u003e');
@@ -36,7 +34,6 @@ class Renderer {
     }
 
     _processDirectives(html, dataContext) {
-        // ... (этот блок без изменений)
         const regex = /<([a-zA-Z0-9\-]+)[^>]*?\satom-if="([^"]+)"[^>]*?>([\s\S]*?)<\/\1>/g;
         const evaluateCondition = (condition) => {
             try {
@@ -72,14 +69,13 @@ class Renderer {
                 id: componentId,
                 code: scriptContent.trim()
             });
-            return ''; // Удаляем тег script из финального HTML
+            return '';
         });
 
         return { html: processedHtml, scripts };
     }
 
     _scopeCss(css, scopeId) {
-        // ... (этот блок без изменений)
         if (!css) return '';
         const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
         const regex = /((?:^|}|,)\s*)([^{}@,]+)((?:\s*,\s*[^{}@,]+)*)(\s*{)/g;
@@ -97,11 +93,13 @@ class Renderer {
         });
     }
     
-    renderComponent(componentName, globalData) {
+    async renderComponent(componentName, dataContext = {}) {
         const component = this.assetLoader.getComponent(componentName);
         if (!component) throw new Error(`Component "${componentName}" not found.`);
         const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
-        const renderContext = { ...this.globalContext, ...globalData, _internal: { id: componentId } };
+        
+        const globalContext = await this._getGlobalContext();
+        const renderContext = { ...globalContext, ...dataContext, _internal: { id: componentId } };
         
         let html = Mustache.render(component.template, renderContext);
         html = this._processDirectives(html, renderContext);
@@ -116,36 +114,40 @@ class Renderer {
         return { html, styles, scripts };
     }
 
-    renderView(routeConfig, globalData) {
+    async renderView(routeConfig, globalData) {
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
+        
         const allStyles = new Set();
         const allScripts = [];
         const injectedHtml = {};
         
+        const dataForInjectedComponents = await this.connectorManager.getContext(routeConfig.reads || []);
+        const renderData = { ...globalData, ...dataForInjectedComponents };
+
         for (const placeholderName in routeConfig.inject) {
             const componentName = routeConfig.inject[placeholderName];
             if (componentName) {
-                const { html, styles, scripts } = this.renderComponent(componentName, globalData);
+                const { html, styles, scripts } = await this.renderComponent(componentName, renderData);
                 if (styles) allStyles.add(styles);
                 if (scripts) allScripts.push(...scripts);
                 injectedHtml[placeholderName] = `<div id="${componentName}-container">${html}</div>`;
             }
         }
         
-        const layoutContext = { ...this.globalContext, ...globalData };
+        const layoutContext = await this._getGlobalContext();
+        
         let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
-            return injectedHtml[placeholderName] || `<!-- ... -->`;
+            return injectedHtml[placeholderName] || `<!-- Placeholder for ${placeholderName} -->`;
         });
         
         layoutHtml = Mustache.render(layoutHtml, layoutContext);
-
+        
         if (allStyles.size > 0) {
             const styleTag = `<style>\n${[...allStyles].join('\n')}\n</style>`;
             layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
         }
 
-        // Внедряем клиентский скрипт и скрипты компонентов
         const scriptsTag = allScripts.length > 0 
             ? `<script type="application/json" data-atom-scripts>${JSON.stringify(allScripts)}</script>`
             : '';

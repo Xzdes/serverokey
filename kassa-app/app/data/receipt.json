@@ -1,16 +1,10 @@
 {
-  "items": [
-    {
-      "id": 5,
-      "name": "Масло сливочное",
-      "price": "180.00"
-    }
-  ],
-  "total": "180.00",
-  "itemCount": 1,
-  "discountPercent": 0,
+  "items": [],
+  "total": "0.00",
+  "itemCount": 0,
+  "discountPercent": 10,
   "discount": "0.00",
-  "finalTotal": "180.00",
-  "statusMessage": "Бонус не применен. Сумма заказа < 300 руб. Факт дня: 1 is the number of dimensions of a line.",
+  "finalTotal": "0.00",
+  "statusMessage": "Чек очищен. Скидка сброшена.",
   "bonusApplied": false
 }
