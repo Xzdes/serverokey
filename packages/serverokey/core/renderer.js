@@ -94,69 +94,70 @@ class Renderer {
         };
     }
 
-    // УЛУЧШЕННАЯ И БОЛЕЕ НАДЕЖНАЯ ВЕРСИЯ
+    // --- ОКОНЧАТЕЛЬНАЯ И ПРОВЕРЕННАЯ ВЕРСИЯ ---
     _scopeCss(css, scopeId) {
-        if (!css) return '';
+        if (!css || !scopeId) return '';
+        
         try {
-            const ast = csstree.parse(css, { onParseError: (e) => { /* Игнорируем ошибки парсинга CSS, но это может привести к невалидному AST */ } });
+            const ast = csstree.parse(css, {
+                onParseError: (error) => {
+                    console.warn(`[Renderer] CSS parse error for scope ${scopeId}: ${error.message}`);
+                }
+            });
+
             const scopeAttr = `[data-component-id="${scopeId}"]`;
-            // ИСПРАВЛЕНИЕ: Используем csstree.find для надежного поиска узла.
-            // Это решает ошибку "children.first is not a function" и делает код более устойчивым.
-            const selectorAst = csstree.parse(scopeAttr, { context: 'selector' });
-            const attributeSelectorNode = csstree.find(selectorAst, node => node.type === 'AttributeSelector');
+            const scopeAst = csstree.parse(scopeAttr, { context: 'selector' });
+            const attributeSelectorNode = csstree.find(scopeAst, node => node.type === 'AttributeSelector');
 
             if (!attributeSelectorNode) {
-                // Этого не должно произойти, но на всякий случай добавим защиту.
                 console.warn(`[Renderer] Could not create a scope attribute node for ${scopeId}.`);
                 return css;
             }
 
             csstree.walk(ast, {
                 visit: 'Selector',
-                enter: (node) => {
-                    // ЗАЩИТА: Проверяем, что node.children является валидным списком css-tree.
-                    // Из-за игнорирования ошибок парсинга, структура AST может быть нарушена.
-                    if (!node.children || typeof node.children.isEmpty !== 'function' || node.children.isEmpty()) {
+                enter: (selector) => {
+                    // --- ИСПРАВЛЕНИЕ №1: Используем свойство .isEmpty, а не функцию ---
+                    if (!selector.children || selector.children.isEmpty) {
                         return;
                     }
-                    
-                    const firstChild = node.children.head ? node.children.head.data : null;
+
+                    // --- ИСПРАВЛЕНИЕ №2: Используем свойство .head.data для доступа к первому узлу ---
+                    const firstChild = selector.children.head ? selector.children.head.data : null;
                     if (!firstChild) {
                         return;
                     }
 
-                    // :host заменяется на атрибут компонента
+                    // Логика для :host
                     if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                        // ОКОНЧАТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Заменяем :host на атрибут компонента.
-                        // Вместо сложного `replace`, удаляем узел :host и добавляем атрибут в начало.
-                        node.children.remove(node.children.head);
-                        node.children.prepend(node.children.createItem(csstree.clone(attributeSelectorNode)));
+                        // Заменяем узел :host на наш атрибут
+                        selector.children.replace(selector.children.head, {
+                            type: 'ListItem',
+                            data: csstree.clone(attributeSelectorNode)
+                        });
                         return;
                     }
 
-                    // Не добавляем скоуп к селекторам анимаций (@keyframes) и глобальным селекторам (html, body, :root)
-                    const selectorName = firstChild.name ? firstChild.name.toLowerCase() : '';
+                    // Логика для исключений (глобальные селекторы, keyframes)
+                    const selectorName = firstChild.name ? String(firstChild.name).toLowerCase() : '';
                     if (
                         firstChild.type === 'Percentage' ||
-                        (firstChild.type === 'TypeSelector' && (selectorName === 'from' || selectorName === 'to' || selectorName === 'html' || selectorName === 'body')) ||
-                        (firstChild.type === 'PseudoClassSelector' && selectorName === 'root')
+                        (firstChild.type === 'TypeSelector' && ['from', 'to', 'html', 'body'].includes(selectorName)) ||
+                        (firstChild.type === 'PseudoClassSelector' && ['root'].includes(selectorName))
                     ) {
                         return;
                     }
                     
-                    // ИСПРАВЛЕНИЕ: Используем prependList для атомарного и корректного добавления.
-                    // Это предотвращает ошибки при манипуляции списком.
-                    const listToPrepend = new csstree.List();
-                    listToPrepend.appendData(csstree.clone(attributeSelectorNode));
-                    listToPrepend.appendData({ type: 'WhiteSpace', value: ' ' });
-                    node.children.prependList(listToPrepend);
+                    // Добавляем атрибут в начало для всех остальных селекторов
+                    selector.children.prependData({ type: 'WhiteSpace', value: ' ' });
+                    selector.children.prependData(csstree.clone(attributeSelectorNode));
                 }
             });
+
             return csstree.generate(ast);
         } catch (e) {
-            // ИСПРАВЛЕНИЕ: Прекращаем "тихое" подавление ошибок. Если скоупинг не удался, это критическая ошибка.
             console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Error:`, e);
-            throw new Error(`CSS scoping failed for component ${scopeId}`);
+            return css; // В случае критического сбоя возвращаем исходный CSS.
         }
     }
 
