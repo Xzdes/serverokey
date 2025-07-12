@@ -4,7 +4,7 @@
   "description": "An atomic, declarative Node.js engine for building web applications with LLMs.",
   "main": "index.js",
   "bin": {
-    "serverokey-validate": "./validate-manifest.js"
+    "serverokey-validate": "validate-manifest.js"
   },
   "files": [
     "core/",
@@ -28,6 +28,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Xzdes/serverokey.git"
+    "url": "git+https://github.com/Xzdes/serverokey.git"
   }
 }
