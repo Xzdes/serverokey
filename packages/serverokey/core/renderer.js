@@ -11,7 +11,6 @@ class Renderer {
         this.debug = options.debug || false;
     }
 
-    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем url в контекст ---
     async _getGlobalContext(reqUrl = null) {
         const context = {};
         const globalsConfig = this.manifest.globals;
@@ -27,7 +26,6 @@ class Renderer {
             }
         }
 
-        // --- НОВЫЙ БЛОК ---
         if (reqUrl) {
             const { URLSearchParams } = require('url');
             const searchParams = new URLSearchParams(reqUrl.search);
@@ -36,7 +34,6 @@ class Renderer {
                 query: Object.fromEntries(searchParams.entries())
             };
         }
-        // --- КОНЕЦ НОВОГО БЛОКА ---
 
         context.asJSON = (data) => {
             if (data === undefined) return 'null';
@@ -45,7 +42,6 @@ class Renderer {
         return context;
     }
 
-    // ... (остальной код до renderView без изменений) ...
     _createDirectivesPlugin(dataContext) {
         const evaluateCondition = (condition) => {
             try {
@@ -185,17 +181,20 @@ class Renderer {
 
         let finalHtml = html;
         if (this.debug) {
-            const safeContext = JSON.stringify(renderContext)
-                                    .replace(/<!--/g, '<\\!--')
-                                    .replace(/-->/g, '--\\>');
-            finalHtml = `<!-- [DEBUG] Rendered component '${componentName}' with context:\n${safeContext}\n-->\n${html}`;
+            // Преобразуем контекст в JSON безопасным способом, избегая циклических ссылок
+            const safeContextJson = JSON.stringify(renderContext, (key, value) => {
+                // Это простая защита от циклических ссылок. Для сложных объектов нужен более умный сериализатор.
+                if (key === '_col') return '[WiseJSON Collection]';
+                return value;
+            }, 2);
+            
+            finalHtml = `<!-- [DEBUG] Rendered component '${componentName}' with context:\n${safeContextJson}\n-->\n${html}`;
         }
 
         return { html: finalHtml, styles, scripts };
     }
 
-    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Передаем URL в _getGlobalContext ---
-    async renderView(routeConfig, globalData, reqUrl) {
+    async renderView(routeConfig, dataContext, reqUrl) {
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
 
@@ -205,13 +204,14 @@ class Renderer {
         const allScripts = [];
         const injectedHtml = {};
 
-        const dataForInjectedComponents = await this.connectorManager.getContext(routeConfig.reads || []);
-        const renderData = { ...globalData, ...dataForInjectedComponents };
+        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: СОЗДАЕМ ЕДИНЫЙ КОНТЕКСТ ---
+        const finalRenderContext = { ...globalContext, ...dataContext };
 
         for (const placeholderName in routeConfig.inject) {
             const componentName = routeConfig.inject[placeholderName];
             if (componentName) {
-                const { html, styles, scripts } = await this.renderComponent(componentName, renderData, globalContext);
+                // Передаем ЕДИНЫЙ контекст в каждый компонент
+                const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, {});
                 if (styles) {
                     allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
                 }
@@ -223,7 +223,9 @@ class Renderer {
         let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
             return injectedHtml[placeholderName] || `<!-- Placeholder for ${placeholderName} -->`;
         });
-        layoutHtml = Mustache.render(layoutHtml, globalContext);
+
+        // Рендерим главный шаблон с ТЕМ ЖЕ ЕДИНЫМ КОНТЕКСТОМ
+        layoutHtml = Mustache.render(layoutHtml, finalRenderContext);
 
         if (allStyleTags.length > 0) {
             const styleTag = allStyleTags.join('\n');
