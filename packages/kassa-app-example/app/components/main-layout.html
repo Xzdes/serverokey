@@ -1,3 +1,4 @@
+<!-- packages/kassa-app-example/app/components/main-layout.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -76,7 +77,7 @@
         <h1>{{appName}}</h1>
         <!-- Этот блок будет показан, только если есть данные пользователя (т.е. он залогинен) -->
         <div class="user-info" atom-if="user.name">
-            <!-- ИЗМЕНЕНИЕ: Исправляем отображение имени и роли -->
+            <!-- ИЗМЕНЕНИЕ: Убедимся, что здесь правильные переменные -->
             <span>{{user.name}} ({{user.role}})</span>
             <a href="/auth/logout">Выход</a>
         </div>

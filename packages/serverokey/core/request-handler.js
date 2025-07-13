@@ -108,14 +108,17 @@ class RequestHandler {
             }
 
             if (routeConfig.type === 'view') {
+                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
                 const readKeys = new Set(routeConfig.reads || []);
-                // --- ИЗМЕНЕНИЕ: Мы больше не читаем 'user' через getContext, так как уже получили его
-                readKeys.delete('user');
+                // Мы уже получили объект user. Не нужно читать весь коннектор 'user' снова.
+                readKeys.delete('user'); 
                 const dataContext = await this.connectorManager.getContext(Array.from(readKeys));
                 
+                // Добавляем наш правильный ОБЪЕКТ user в контекст.
                 if (user) {
                     dataContext.user = user;
                 }
+                // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
                 const html = await this.renderer.renderView(routeConfig, dataContext, url);
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
@@ -123,6 +126,7 @@ class RequestHandler {
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
+                // Аналогичное исправление для экшенов
                 const readKeys = new Set(routeConfig.reads || []);
                 readKeys.delete('user');
                 const context = await this.connectorManager.getContext(Array.from(readKeys));
@@ -147,7 +151,7 @@ class RequestHandler {
                 }
                 
                 delete finalContext.body;
-                delete finalContext.zod; // Удаляем служебный объект zod перед записью
+                delete finalContext.zod; 
 
                 for (const key of routeConfig.writes) {
                     if (key === 'user') continue; 
