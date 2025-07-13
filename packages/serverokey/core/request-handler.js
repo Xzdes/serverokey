@@ -17,18 +17,20 @@ class RequestHandler {
         this.debug = options.debug || false;
         
         this.authEngine = null; 
+        this.userConnector = null;
         this.authInitPromise = this._initializeAuthEngine();
     }
 
     async _initializeAuthEngine() {
         if (this.manifest.auth) {
             try {
-                const userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
+                this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
                 
-                await Promise.all([userConnector.initPromise, sessionConnector.initPromise]);
+                await Promise.all([this.userConnector.initPromise, sessionConnector.initPromise]);
                 
-                this.authEngine = new AuthEngine(this.manifest, userConnector.collection, sessionConnector.collection);
+                this.authEngine = new AuthEngine(this.manifest, this.userConnector.collection, sessionConnector.collection);
+                
             } catch (e) {
                 console.error("CRITICAL: Failed to initialize AuthEngine. Auth will be disabled.", e);
                 this.authEngine = null;
@@ -42,7 +44,13 @@ class RequestHandler {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
         
-        const session = this.authEngine ? await this.authEngine.getSession(req) : null;
+        let user = null;
+        if (this.authEngine) {
+            const session = await this.authEngine.getSession(req);
+            if (session && session.userId) {
+                user = await this.userConnector.collection.getById(session.userId);
+            }
+        }
 
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js'); 
@@ -57,7 +65,7 @@ class RequestHandler {
         }
 
         if (this.authEngine && routeConfig.auth?.required) {
-            if (!session) {
+            if (!user) {
                 this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
                 return;
             }
@@ -78,8 +86,8 @@ class RequestHandler {
                         break;
                     case 'auth:login':
                         try {
-                            const user = await this.authEngine.login(body);
-                            const sessionId = await this.authEngine.createSession(user);
+                            const loggedInUser = await this.authEngine.login(body);
+                            const sessionId = await this.authEngine.createSession(loggedInUser);
                             res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
                                 httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
                             }));
@@ -100,25 +108,27 @@ class RequestHandler {
             }
 
             if (routeConfig.type === 'view') {
-                const globalDataKeys = this.manifest.globals?.injectData || [];
-                const globalDataContext = await this.connectorManager.getContext(globalDataKeys);
+                const readKeys = new Set(routeConfig.reads || []);
+                // --- ИЗМЕНЕНИЕ: Мы больше не читаем 'user' через getContext, так как уже получили его
+                readKeys.delete('user');
+                const dataContext = await this.connectorManager.getContext(Array.from(readKeys));
                 
-                if (session) {
-                    // Для view мы заменяем данные из коннектора 'user' на данные из сессии.
-                    // injectData в globals больше не нужен.
-                    globalDataContext.user = session;
+                if (user) {
+                    dataContext.user = user;
                 }
 
-                const html = await this.renderer.renderView(routeConfig, globalDataContext, url);
+                const html = await this.renderer.renderView(routeConfig, dataContext, url);
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
             }
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                const context = await this.connectorManager.getContext(routeConfig.reads);
+                const readKeys = new Set(routeConfig.reads || []);
+                readKeys.delete('user');
+                const context = await this.connectorManager.getContext(Array.from(readKeys));
 
-                if (session) {
-                    context.user = session;
+                if (user) {
+                    context.user = user;
                 }
                 
                 context.body = body;
@@ -129,7 +139,7 @@ class RequestHandler {
                     const engine = new ActionEngine(context);
                     await engine.run(routeConfig.steps);
                     finalContext = engine.context;
-                } else if (routeConfig.handler) { // Убираем manipulate для чистоты
+                } else if (routeConfig.handler) {
                     const handler = this.assetLoader.getAction(routeConfig.handler);
                     handler(finalContext, body);
                 } else {
@@ -137,23 +147,21 @@ class RequestHandler {
                 }
                 
                 delete finalContext.body;
+                delete finalContext.zod; // Удаляем служебный объект zod перед записью
 
                 for (const key of routeConfig.writes) {
+                    if (key === 'user') continue; 
                     const connector = this.connectorManager.getConnector(key);
                     await connector.write(finalContext[key]);
                 }
 
-                // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-                // Используем `finalContext` для рендеринга, а не перечитываем данные.
                 const globalContext = await this.renderer._getGlobalContext(url);
                 
-                // Убедимся, что `user` из сессии есть в финальном контексте.
-                if (session) {
-                    finalContext.user = session;
+                if (user) {
+                    finalContext.user = user;
                 }
 
-                // Объединяем все данные для рендеринга.
-                const renderDataContext = { ...finalContext, ...body };
+                const renderDataContext = { ...finalContext };
                 
                 const componentName = routeConfig.update;
                 const { html, styles, scripts } = await this.renderer.renderComponent(componentName, renderDataContext, globalContext);

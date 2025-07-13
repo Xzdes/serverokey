@@ -1,25 +1,23 @@
 // core/action-engine.js
 const http = require('http');
-const https = require('https'); // <-- Вот здесь была ошибка, теперь она исправлена.
+const https = require('https');
+const { z } = require('zod'); // <-- Импортируем Zod
 
-// Безопасная функция для выполнения выражений (без изменений)
+// --- ИЗМЕНЕНИЕ: Упрощаем evaluate, он больше не скрывает ошибки ---
 function evaluate(expression, context) {
     if (typeof expression !== 'string') return expression;
-    try {
-        const contextKeys = Object.keys(context);
-        const contextValues = Object.values(context);
-        const func = new Function(...contextKeys, `return ${expression};`);
-        return func(...contextValues);
-    } catch (e) {
-        console.warn(`[ActionEngine] Could not evaluate expression "${expression}". Returning as a string.`, e.message);
-        return expression;
-    }
+    // Мы передаем zod в контекст, поэтому он будет доступен внутри функции
+    const contextKeys = Object.keys(context);
+    const contextValues = Object.values(context);
+    // Выражение выполняется и может выбросить исключение (например, при ошибке валидации Zod)
+    const func = new Function(...contextKeys, `return ${expression};`);
+    return func(...contextValues);
 }
 
-// --- Финальная, отказоустойчивая версия HTTP GET ---
+// --- Старая, более сложная версия HTTP GET без изменений ---
 function httpGet(url) {
     const client = url.startsWith('https://') ? https : http;
-    const REQUEST_TIMEOUT = 5000; // 5 секунд
+    const REQUEST_TIMEOUT = 5000;
 
     return new Promise((resolve, reject) => {
         const req = client.get(url, (res) => {
@@ -34,8 +32,7 @@ function httpGet(url) {
             res.setEncoding('utf8');
             res.on('data', (chunk) => { rawData += chunk; });
             res.on('end', () => {
-                // Успех! Очищаем таймаут.
-                req.destroy(); // Убедимся, что все ресурсы освобождены
+                req.destroy();
                 try {
                     resolve(JSON.parse(rawData));
                 } catch (e) {
@@ -43,17 +40,9 @@ function httpGet(url) {
                 }
             });
         });
-
-        // Обработчик ошибок соединения
-        req.on('error', (e) => {
-            reject(new Error(`Request Error: ${e.message}`));
-        });
-
-        // --- Главное изменение: добавляем таймаут ---
+        req.on('error', (e) => reject(new Error(`Request Error: ${e.message}`)));
         req.setTimeout(REQUEST_TIMEOUT, () => {
-            // Запрос занял слишком много времени, прерываем его.
-            req.destroy(); // Обязательно "убиваем" запрос, чтобы он не висел впустую.
-            // Отклоняем Promise с понятной ошибкой.
+            req.destroy();
             reject(new Error(`Request timed out after ${REQUEST_TIMEOUT}ms`));
         });
     });
@@ -62,7 +51,10 @@ function httpGet(url) {
 
 class ActionEngine {
     constructor(context) {
+        // Клонируем контекст, чтобы избежать мутаций
         this.context = JSON.parse(JSON.stringify(context));
+        // --- НОВЫЙ БЛОК: Добавляем Zod в контекст ПОСЛЕ клонирования ---
+        this.context.zod = z;
     }
 
     async run(steps) {
@@ -72,41 +64,52 @@ class ActionEngine {
         }
     }
 
+    // --- ИЗМЕНЕНИЕ: Оборачиваем выполнение шага в try/catch ---
     async executeStep(step) {
-        if (step.set) {
-            const value = evaluate(step.to, this.context);
-            this._setValue(step.set, value);
-        } else if (step.if) {
-            const condition = evaluate(step.if, this.context);
-            if (condition && step.then) {
-                await this.run(step.then);
-            } else if (!condition && step.else) {
-                await this.run(step.else);
-            }
-        } else if (step.forEach) {
-            const list = evaluate(step.forEach, this.context);
-            const itemName = step.as || 'item';
-            if (Array.isArray(list)) {
-                for (const item of list) {
-                    const loopContext = { ...this.context, [itemName]: item };
-                    const loopEngine = new ActionEngine(loopContext);
-                    await loopEngine.run(step.steps);
-                    Object.assign(item, loopEngine.context[itemName]);
+        try {
+            if (step.set) {
+                const value = evaluate(step.to, this.context);
+                this._setValue(step.set, value);
+            } else if (step.if) {
+                const condition = evaluate(step.if, this.context);
+                if (condition && step.then) {
+                    await this.run(step.then);
+                } else if (!condition && step.else) {
+                    await this.run(step.else);
                 }
+            } else if (step.forEach) {
+                const list = evaluate(step.forEach, this.context);
+                const itemName = step.as || 'item';
+                if (Array.isArray(list)) {
+                    for (const item of list) {
+                        const loopContext = { ...this.context, [itemName]: item };
+                        const loopEngine = new ActionEngine(loopContext);
+                        await loopEngine.run(step.steps);
+                        Object.assign(item, loopEngine.context[itemName]);
+                    }
+                }
+            } else if (step['http:get']) {
+                const config = step['http:get'];
+                const url = evaluate(config.url, this.context);
+                console.log(`[ActionEngine] Performing HTTP GET: ${url}`);
+                try {
+                    const data = await httpGet(url);
+                    this._setValue(config.saveTo, data);
+                } catch (error) {
+                    console.error(`[ActionEngine] HTTP GET request to ${url} failed:`, error);
+                    this._setValue(config.saveTo, { error: error.message });
+                }
+            } else {
+                console.warn('[ActionEngine] Unknown or incomplete step:', step);
             }
-        } else if (step['http:get']) {
-            const config = step['http:get'];
-            const url = evaluate(config.url, this.context);
-            console.log(`[ActionEngine] Performing HTTP GET: ${url}`);
-            try {
-                const data = await httpGet(url);
-                this._setValue(config.saveTo, data);
-            } catch (error) {
-                console.error(`[ActionEngine] HTTP GET request to ${url} failed:`, error);
-                this._setValue(config.saveTo, { error: error.message });
-            }
-        } else {
-            console.warn('[ActionEngine] Unknown or incomplete step:', step);
+        } catch (error) {
+            // Если любой шаг (включая evaluate) выбрасывает ошибку, мы ловим ее здесь.
+            console.error(`\n💥 [ActionEngine] Step execution failed!`);
+            console.error(`   Step: ${JSON.stringify(step)}`);
+            console.error(`   Error: ${error.message}\n`);
+            // Пробрасываем ошибку дальше, чтобы остановить весь запрос.
+            // RequestHandler поймает ее и вернет 500 Internal Server Error.
+            throw error; 
         }
     }
 

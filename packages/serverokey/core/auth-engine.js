@@ -23,21 +23,14 @@ class AuthEngine {
     async createSession(user) {
         const sessionId = crypto.randomBytes(32).toString('hex');
         
+        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        // Сессия теперь хранит ТОЛЬКО ID пользователя. 
+        // Больше никакого копирования полей.
         const sessionData = {
             _id: sessionId,
             userId: user._id,
             login: user[this.config.identityField]
         };
-        
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        // Копируем поля, указанные в 'sessionFields', из документа пользователя в сессию.
-        if (this.config.sessionFields && Array.isArray(this.config.sessionFields)) {
-            for (const field of this.config.sessionFields) {
-                if (user.hasOwnProperty(field)) {
-                    sessionData[field] = user[field];
-                }
-            }
-        }
         
         await this.sessionCollection.insert(sessionData);
         return sessionId;
@@ -81,9 +74,9 @@ class AuthEngine {
         const passwordHash = await bcrypt.hash(password, saltRounds);
 
         const newUser = {
+            ...body, // Копируем все поля из формы (name, etc.)
             [identityField]: identity,
-            [passwordField]: passwordHash,
-            ...body
+            [passwordField]: passwordHash
         };
         delete newUser.password;
 

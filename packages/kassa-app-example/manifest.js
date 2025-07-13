@@ -10,8 +10,7 @@ module.exports = {
   auth: {
     userConnector: 'user', 
     identityField: 'login',
-    passwordField: 'passwordHash',
-    sessionFields: ['role', 'name']
+    passwordField: 'passwordHash'
   },
   connectors: {
     session: { type: 'wise-json', collection: 'sessions' },
@@ -22,7 +21,12 @@ module.exports = {
       initialState: { 
         items: [], itemCount: 0, total: 0, discountPercent: 10,
         discount: 0, finalTotal: 0, statusMessage: '', bonusApplied: false
-      }
+      },
+      computed: [
+        { "target": "total", "format": "toFixed(2)" },
+        { "target": "discount", "format": "toFixed(2)" },
+        { "target": "finalTotal", "format": "toFixed(2)" }
+      ]
     },
     positions: { 
       type: 'wise-json',
@@ -53,6 +57,7 @@ module.exports = {
     'POST /action/addItem': {
       type: 'action',
       steps: [
+        // Здесь тоже можно добавить валидацию для body.id по аналогии с removeItem
         { "set": "context.productToAdd", "to": "positions.items.find(p => p.id == body.id)" },
         { "set": "context.itemInReceipt", "to": "receipt.items.find(i => i.id == body.id)" },
         {
@@ -86,13 +91,21 @@ module.exports = {
     'POST /action/removeItem': {
       type: 'action',
       steps: [
-        { "set": "context.itemInReceipt", "to": "receipt.items.find(i => i.id == body.itemId)" },
+        // --- НОВЫЙ ШАГ: ВАЛИДАЦИЯ И ПРЕОБРАЗОВАНИЕ ВХОДНЫХ ДАННЫХ ---
+        // 1. Проверяем, что body.itemId - это строка из цифр.
+        // 2. Если да, преобразуем ее в число (transform(Number)).
+        // 3. Результат сохраняем в context.validatedItemId.
+        // 4. Если проверка провалится, .parse() выбросит ошибку, и ActionEngine остановит выполнение.
+        { "set": "context.validatedItemId", "to": "zod.string().regex(/^\\d+$/).transform(Number).parse(body.itemId)" },
+        
+        // --- ИЗМЕНЕНИЕ: Используем очищенные данные ---
+        { "set": "context.itemInReceipt", "to": "receipt.items.find(i => i.id === context.validatedItemId)" },
         {
           "if": "context.itemInReceipt",
           "then": [
             { "if": "context.itemInReceipt.quantity > 1",
               "then": [ { "set": "context.itemInReceipt.quantity", "to": "context.itemInReceipt.quantity - 1" } ],
-              "else": [ { "set": "receipt.items", "to": "receipt.items.filter(i => i.id != body.itemId)" } ]
+              "else": [ { "set": "receipt.items", "to": "receipt.items.filter(i => i.id !== context.validatedItemId)" } ]
             }
           ]
         },
@@ -113,6 +126,7 @@ module.exports = {
     'POST /action/applyCoupon': {
       type: 'action',
       steps: [
+        // Здесь тоже можно добавить валидацию для body.coupon_code
         { "set": "receipt.statusMessage", "to": "'Неверный купон! Скидка сброшена.'" },
         { "set": "receipt.discountPercent", "to": 0 },
         { "if": "body.coupon_code === 'SALE15'",

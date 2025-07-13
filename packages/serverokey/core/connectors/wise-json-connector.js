@@ -39,11 +39,14 @@ class WiseJsonConnector {
         
         const allDocs = await this.collection.getAll() || [];
         
-        if (this.name === 'user') {
-            return allDocs[0] || this.config.initialState || {};
+        if (this.name === 'user' || this.name === 'session') {
+            return allDocs; 
         }
 
-        const data = { ...(this.config.initialState || {}), items: allDocs };
+        const metaDoc = await this.collection.findOne({_id: '_meta'});
+        const items = allDocs.filter(d => d._id !== '_meta');
+        
+        const data = { ...(this.config.initialState || {}), ...(metaDoc || {}), items: items };
         
         this._runComputations(data);
         return data;
@@ -52,31 +55,32 @@ class WiseJsonConnector {
     async write(newData) {
         await this.initPromise;
         
-        // Удаляем вычисляемые поля перед записью, чтобы они не дублировались в БД.
-        const dataToSave = { ...newData };
-        if (this.config.computed && Array.isArray(this.config.computed)) {
-            this.config.computed.forEach(rule => {
-                delete dataToSave[rule.target];
-            });
-        }
-
-        if (this.name === 'user') {
-             const userId = dataToSave._id || 'default_user';
-             // Простой upsert: удалить, затем вставить
-             await this.collection.remove(userId);
-             await this.collection.insert({ ...dataToSave, _id: userId });
+        if (this.name === 'user' || this.name === 'session') {
+             console.warn(`[WiseJsonConnector] Direct write to collection-type connector '${this.name}' is not supported. Use auth actions.`);
              return;
         }
         
+        const dataToSave = { ...newData };
         const docsToSave = dataToSave.items || [];
+        delete dataToSave.items; // Готовим мета-данные для сохранения
         
         const txn = dbInstance.beginTransaction();
         try {
             const txnCollection = txn.collection(this.collectionName);
-            await txnCollection.clear();
+
+            // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: УПРОЩЕННАЯ ЛОГИКА ЗАПИСИ ---
+            // 1. Полностью очищаем коллекцию от старого состояния.
+            await txnCollection.clear(); 
+            
+            // 2. Вставляем массив с новыми товарами.
             if (docsToSave.length > 0) {
                 await txnCollection.insertMany(docsToSave);
             }
+            
+            // 3. Вставляем один документ с мета-данными (total, discount, etc.).
+            // Нам не нужно проверять его наличие, так как мы все очистили.
+            await txnCollection.insert({_id: '_meta', ...dataToSave});
+
             await txn.commit();
         } catch (error) {
             console.error(`[WiseJsonConnector] Transaction failed for collection '${this.collectionName}':`, error);
@@ -96,19 +100,24 @@ class WiseJsonConnector {
 
         this.config.computed.forEach(rule => {
             const { target, formula, format } = rule;
-            if (!formula) return;
             
-            const result = parser.evaluate(formula);
-
-            if (typeof result !== 'undefined' && !isNaN(result)) {
-                let value = result;
-                if (format === 'toFixed(2)') {
-                    value = parseFloat(result).toFixed(2);
+            if (formula) {
+                const result = parser.evaluate(formula);
+                if (typeof result !== 'undefined' && !isNaN(result)) {
+                    data[target] = result;
+                    parser.context[target] = result;
+                } else {
+                    data[target] = rule.defaultValue !== undefined ? rule.defaultValue : 0;
                 }
-                data[target] = value;
-                parser.context[target] = value;
-            } else {
-                 data[target] = rule.defaultValue !== undefined ? rule.defaultValue : 0;
+            }
+            
+            if (format && data.hasOwnProperty(target)) {
+                const value = parseFloat(data[target]);
+                if (!isNaN(value)) {
+                    if (format === 'toFixed(2)') {
+                        data[target] = value.toFixed(2);
+                    }
+                }
             }
         });
     }
