@@ -1,17 +1,10 @@
 // s:\serverokey\packages\serverokey\core\engine-client.js
 
-// --- НОВЫЙ БЛОК: Определяем, включен ли режим отладки ---
 const isDebugMode = document.body.hasAttribute('data-debug-mode');
 
-/**
- * Finds the closest form, collects its data, and includes the triggering button's value.
- * @param {HTMLElement} element - The element that triggered the action.
- * @returns {string} - A JSON string of the form data.
- */
 function getActionBody(element) {
     const form = element.closest('form');
     const data = {};
-
     if (form) {
         const formData = new FormData(form);
         for (const [key, value] of formData.entries()) {
@@ -20,45 +13,29 @@ function getActionBody(element) {
     } else if (element.name) {
         data[element.name] = element.value;
     }
-
     if (element.tagName === 'BUTTON' && element.name) {
         data[element.name] = element.value;
     }
-
     return JSON.stringify(data);
 }
 
-/**
- * Updates the component's styles in the document's <head>.
- * Creates a <style> tag if one doesn't exist for the component.
- * @param {string} componentName - The name of the component.
- * @param {string} newStyles - The new CSS string.
- */
 function updateStyles(componentName, newStyles) {
     if (!newStyles || !componentName) return;
-
     const styleId = `style-for-${componentName}`;
     let styleTag = document.getElementById(styleId);
-
     if (!styleTag) {
         styleTag = document.createElement('style');
         styleTag.id = styleId;
         styleTag.setAttribute('data-component-name', componentName);
         document.head.appendChild(styleTag);
     }
-
     if (styleTag.textContent !== newStyles) {
         styleTag.textContent = newStyles;
     }
 }
 
-/**
- * Executes client-side scripts that are part of a component's payload.
- * @param {Array<Object>} scripts - An array of script objects, e.g., [{ id, code }].
- */
 function executeScripts(scripts) {
     if (!scripts || !Array.isArray(scripts)) return;
-
     scripts.forEach(scriptInfo => {
         try {
             new Function(scriptInfo.code)();
@@ -68,16 +45,23 @@ function executeScripts(scripts) {
     });
 }
 
-/**
- * Main action handler for declarative events.
- * @param {Event} event - The DOM event.
- */
 async function handleAction(event) {
+    // --- ИЗМЕНЕНИЕ: Проверяем, не нужно ли игнорировать эту форму ---
+    const form = event.target.closest('form');
+    if (form && form.hasAttribute('data-native-submit')) {
+        // Если у формы есть этот атрибут, мы ничего не делаем,
+        // позволяя браузеру выполнить стандартную отправку.
+        return;
+    }
+    
     const element = event.target.closest('[atom-action]');
     if (!element) return;
 
     const requiredEventType = element.getAttribute('atom-event') || 'click';
-    if (event.type !== requiredEventType) return;
+    // Для сабмита формы, триггером является сама форма, а не кнопка
+    const triggerElement = event.type === 'submit' ? event.target : element;
+    
+    if (event.type !== requiredEventType && triggerElement.tagName !== 'FORM') return;
 
     event.preventDefault();
 
@@ -92,7 +76,6 @@ async function handleAction(event) {
     const body = getActionBody(element);
 
     try {
-        // --- НОВЫЙ БЛОК: Логирование в режиме отладки ---
         if (isDebugMode) {
             console.groupCollapsed(`[DEBUG] Action Triggered: ${action}`);
             console.log('DOM Element:', element);
@@ -116,7 +99,6 @@ async function handleAction(event) {
         const targetElement = document.querySelector(targetSelector);
         if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);
 
-        // --- НОВЫЙ БЛОК: Логирование в режиме отладки ---
         if (isDebugMode) {
             console.groupCollapsed(`[DEBUG] Received Payload for: ${action}`);
             console.log('Target Element:', targetElement);

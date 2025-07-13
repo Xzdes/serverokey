@@ -2,11 +2,10 @@
 const path = require('path');
 const { addIssue, checkFileExists } = require('./utils');
 
-// --- УТИЛИТА ДЛЯ ПОДСКАЗОК (LEVENSHTEIN DISTANCE) ---
 function getSuggestion(str, validOptions) {
     if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
     let bestMatch = '';
-    let minDistance = 3; // Искать опечатки на расстоянии не более 2 символов
+    let minDistance = 3; 
 
     for (const option of validOptions) {
         const d = levenshtein(str, option);
@@ -31,7 +30,6 @@ function levenshtein(a, b) {
     return matrix[b.length][a.length];
 }
 
-
 function validateRoutes(manifest, appPath) {
   const routes = manifest.routes || {};
   const componentNames = Object.keys(manifest.components || {});
@@ -41,15 +39,18 @@ function validateRoutes(manifest, appPath) {
     const route = routes[routeKey];
     const category = `Route '${routeKey}'`;
 
-    if (!route.type || !['view', 'action'].includes(route.type)) {
-      addIssue('error', category, `Route is missing or has invalid 'type'. Must be 'view' or 'action'.`);
+    const validTypes = ['view', 'action', 'auth:register', 'auth:login', 'auth:logout'];
+    if (!route.type || !validTypes.includes(route.type)) {
+      addIssue('error', category, `Route is missing or has invalid 'type'. Must be one of: ${validTypes.join(', ')}.`);
       continue;
     }
+
     if (route.type === 'view') {
       validateViewRoute(route, category, componentNames, connectorNames);
-    }
-    if (route.type === 'action') {
+    } else if (route.type === 'action') {
       validateActionRoute(route, category, componentNames, connectorNames, appPath);
+    } else if (route.type.startsWith('auth:')) {
+      validateAuthRoute(route, category, manifest);
     }
   }
 }
@@ -119,6 +120,19 @@ function validateActionRoute(route, category, componentNames, connectorNames, ap
   if (Array.isArray(route.steps)) {
     checkSteps(route.steps, category, reads, appPath);
   }
+}
+
+function validateAuthRoute(route, category, manifest) {
+    if (!manifest.auth) {
+        addIssue('error', category, `Auth route type requires an 'auth' section in manifest.js.`);
+        return;
+    }
+    if (!route.successRedirect) {
+        addIssue('warning', category, `Auth route is missing 'successRedirect'. Will redirect to '/' by default.`);
+    }
+    if (route.type !== 'auth:logout' && !route.failureRedirect) {
+        addIssue('warning', category, `Auth route is missing 'failureRedirect'.`);
+    }
 }
 
 function checkSteps(steps, category, availableReads, appPath) {

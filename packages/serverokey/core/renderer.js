@@ -4,39 +4,48 @@ const posthtml = require('posthtml');
 const csstree = require('css-tree');
 
 class Renderer {
-    // --- ИЗМЕНЕНИЕ: Принимаем options в конструкторе ---
     constructor(assetLoader, manifest, connectorManager, modulePath, options = {}) {
         this.assetLoader = assetLoader;
         this.manifest = manifest;
         this.connectorManager = connectorManager;
-        this.debug = options.debug || false; // Сохраняем флаг
+        this.debug = options.debug || false;
     }
 
-    async _getGlobalContext() {
+    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем url в контекст ---
+    async _getGlobalContext(reqUrl = null) {
         const context = {};
         const globalsConfig = this.manifest.globals;
-        if (!globalsConfig) return context;
-
-        for (const key in globalsConfig) {
-            if (key !== 'injectData') {
-                context[key] = globalsConfig[key];
+        if (globalsConfig) {
+            for (const key in globalsConfig) {
+                if (key !== 'injectData') {
+                    context[key] = globalsConfig[key];
+                }
+            }
+            if (Array.isArray(globalsConfig.injectData)) {
+                const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
+                Object.assign(context, injectedData);
             }
         }
 
-        if (Array.isArray(globalsConfig.injectData)) {
-            const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
-            Object.assign(context, injectedData);
+        // --- НОВЫЙ БЛОК ---
+        if (reqUrl) {
+            const { URLSearchParams } = require('url');
+            const searchParams = new URLSearchParams(reqUrl.search);
+            context.url = {
+                pathname: reqUrl.pathname,
+                query: Object.fromEntries(searchParams.entries())
+            };
         }
+        // --- КОНЕЦ НОВОГО БЛОКА ---
 
         context.asJSON = (data) => {
             if (data === undefined) return 'null';
-            return JSON.stringify(data)
-                .replace(/</g, '\\u003c')
-                .replace(/>/g, '\\u003e');
+            return JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
         };
         return context;
     }
 
+    // ... (остальной код до renderView без изменений) ...
     _createDirectivesPlugin(dataContext) {
         const evaluateCondition = (condition) => {
             try {
@@ -140,6 +149,7 @@ class Renderer {
                     ) {
                         return;
                     }
+                    
                     selector.children.prependData({ type: 'WhiteSpace', value: ' ' });
                     selector.children.prependData(csstree.clone(attributeSelectorNode));
                 }
@@ -173,7 +183,6 @@ class Renderer {
         
         const styles = this._scopeCss(component.style, componentId);
 
-        // --- НОВЫЙ БЛОК: Добавляем отладочный HTML-комментарий ---
         let finalHtml = html;
         if (this.debug) {
             const safeContext = JSON.stringify(renderContext)
@@ -185,11 +194,12 @@ class Renderer {
         return { html: finalHtml, styles, scripts };
     }
 
-    async renderView(routeConfig, globalData) {
+    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Передаем URL в _getGlobalContext ---
+    async renderView(routeConfig, globalData, reqUrl) {
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
 
-        const globalContext = await this._getGlobalContext();
+        const globalContext = await this._getGlobalContext(reqUrl);
 
         const allStyleTags = [];
         const allScripts = [];
@@ -225,7 +235,6 @@ class Renderer {
             : '';
         const clientScriptTag = `<script src="/engine-client.js"></script>`;
         
-        // --- НОВЫЙ БЛОК: Добавляем атрибут в body в режиме отладки ---
         let finalBodyTag = '</body>';
         if (this.debug) {
             finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;

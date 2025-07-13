@@ -1,0 +1,27 @@
+<div>
+    <h2>Регистрация</h2>
+    
+    <p class="error" atom-if="url.query.error">Этот логин уже занят или произошла ошибка.</p>
+    
+    <!-- ИЗМЕНЕНИЕ: Добавляем data-native-submit и стандартные action/method -->
+    <form action="/auth/register" method="POST" data-native-submit="true">
+        <div class="form-group">
+            <label for="name">Имя</label>
+            <input type="text" id="name" name="name" required>
+        </div>
+        <div class="form-group">
+            <label for="login">Логин</label>
+            <input type="text" id="login" name="login" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <div class="form-group">
+            <button type="submit">Зарегистрироваться</button>
+        </div>
+    </form>
+     <div class="links">
+        <a href="/login">У меня уже есть аккаунт</a>
+    </div>
+</div>

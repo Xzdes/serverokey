@@ -1,6 +1,7 @@
 <!-- app/components/receipt.html -->
 <div>
-    <h3>Чек для: {{user.name}}</h3>
+    <!-- ИЗМЕНЕНИЕ: Убираем имя пользователя из заголовка -->
+    <h3>Чек</h3>
     <p atom-if="receipt.statusMessage" style="color: green; font-style: italic;">{{receipt.statusMessage}}</p>
 
     <ul atom-if="receipt.items.length > 0">
@@ -29,7 +30,6 @@
     
     <div class="totals">
       <p><span>Позиций:</span> <span>{{receipt.itemCount}} шт.</span></p>
-      <!-- ВОЗВРАЩАЕМ КАК БЫЛО: Просто вставляем значения -->
       <p><span>Сумма:</span> <span>{{receipt.total}} руб.</span></p>
       <p class="discount"><span>Скидка ({{receipt.discountPercent}}%):</span> <span>-{{receipt.discount}} руб.</span></p>
       <p class="final-total"><b>Итого:</b> <b>{{receipt.finalTotal}} руб.</b></p>

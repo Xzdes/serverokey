@@ -12,5 +12,9 @@
     "packages/*"
   ],
   "author": "Xzdes <xzdes@yandex.ru>",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie": "^1.0.2"
+  }
 }

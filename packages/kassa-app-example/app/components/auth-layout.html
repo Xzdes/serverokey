@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход - {{appName}}</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .auth-card { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        .auth-card h2 { text-align: center; margin-top: 0; color: #333; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .form-group button { width: 100%; padding: 12px; border: none; border-radius: 4px; background-color: #007bff; color: white; font-size: 16px; cursor: pointer; }
+        .form-group button:hover { background-color: #0056b3; }
+        .links { text-align: center; margin-top: 20px; }
+        .links a { color: #007bff; text-decoration: none; }
+        .error { color: #d93025; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 4px; text-align: center; margin-bottom: 20px;}
+    </style>
+</head>
+<body>
+    <div class="auth-card">
+        <atom-inject into="form"></atom-inject>
+    </div>
+</body>
+</html>

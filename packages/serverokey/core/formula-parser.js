@@ -1,5 +1,4 @@
 // core/formula-parser.js
-
 class FormulaParser {
     constructor(dataContext) {
         this.context = dataContext;
@@ -10,7 +9,6 @@ class FormulaParser {
     }
 
     evaluate(formula) {
-        // Проверяем вызов функции
         const funcMatch = formula.match(/^(\w+)\((.*)\)$/);
         if (funcMatch) {
             const funcName = funcMatch[1];
@@ -19,19 +17,8 @@ class FormulaParser {
                 return this.functions[funcName](...args);
             }
         }
-
-        // --- САМОЕ ПРОСТОЕ И НАДЕЖНОЕ РЕШЕНИЕ ---
-        // Мы передаем весь контекст данных в безопасную функцию.
-        // Это позволяет использовать в формуле любые поля из контекста, включая вложенные.
-        try {
-            const contextKeys = Object.keys(this.context);
-            const contextValues = Object.values(this.context);
-            const func = new Function(...contextKeys, `return ${formula};`);
-            return func(...contextValues);
-        } catch (e) {
-            console.error(`[FormulaParser] Error evaluating formula: "${formula}"`, e.message);
-            return NaN;
-        }
+        // НЕ ПЫТАЕМСЯ ВЫПОЛНИТЬ JS
+        return NaN;
     }
 
     _sum(arrayName, fieldName) {
