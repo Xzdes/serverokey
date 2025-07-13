@@ -1,6 +1,6 @@
 {
   "name": "serverokey",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "An atomic, declarative Node.js engine for building web applications with LLMs.",
   "main": "index.js",
   "bin": {
