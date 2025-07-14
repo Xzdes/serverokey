@@ -21,8 +21,13 @@ class Renderer {
                 }
             }
             if (Array.isArray(globalsConfig.injectData)) {
-                const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
-                Object.assign(context, injectedData);
+                // Убедимся, что connectorManager существует, прежде чем его использовать
+                if (this.connectorManager) {
+                    const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
+                    Object.assign(context, injectedData);
+                } else {
+                     console.warn('[Renderer] Warning: globals.injectData is defined, but no ConnectorManager was provided to Renderer.');
+                }
             }
         }
 
@@ -50,7 +55,6 @@ class Renderer {
                 const func = new Function(...contextKeys, `return ${condition};`);
                 return !!func(...contextValues);
             } catch (e) {
-                // В режиме отладки выводим ошибку, чтобы было проще найти проблему
                 if(this.debug) console.warn(`[Renderer] Could not evaluate atom-if condition: "${condition}". Error: ${e.message}`);
                 return false;
             }
@@ -67,6 +71,8 @@ class Renderer {
                 }
                 return node;
             });
+            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
+            return tree;
         };
     }
 
@@ -85,6 +91,8 @@ class Renderer {
                 }
                 return node;
             });
+            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
+            return tree;
         };
     }
 
@@ -99,6 +107,8 @@ class Renderer {
                 }
                 return node;
             });
+            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
+            return tree;
         };
     }
 
@@ -163,8 +173,6 @@ class Renderer {
         const component = this.assetLoader.getComponent(componentName);
         if (!component) throw new Error(`Component "${componentName}" not found.`);
 
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        // Получаем глобальный контекст и смешиваем его с переданным
         const globalContext = await this._getGlobalContext(reqUrl);
         const renderContext = { ...globalContext, ...dataContext };
 
@@ -208,16 +216,17 @@ class Renderer {
         const allScripts = [];
         const injectedHtml = {};
 
-        for (const placeholderName in routeConfig.inject) {
-            const componentName = routeConfig.inject[placeholderName];
-            if (componentName) {
-                // Передаем ЕДИНЫЙ контекст, а reqUrl больше не нужен, т.к. он уже в globalContext
-                const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, reqUrl);
-                if (styles) {
-                    allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
+        if (routeConfig.inject) {
+            for (const placeholderName in routeConfig.inject) {
+                const componentName = routeConfig.inject[placeholderName];
+                if (componentName) {
+                    const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, reqUrl);
+                    if (styles) {
+                        allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
+                    }
+                    if (scripts) allScripts.push(...scripts);
+                    injectedHtml[placeholderName] = `<div id="${componentName}-container">${html}</div>`;
                 }
-                if (scripts) allScripts.push(...scripts);
-                injectedHtml[placeholderName] = `<div id="${componentName}-container">${html}</div>`;
             }
         }
 
@@ -229,20 +238,29 @@ class Renderer {
 
         if (allStyleTags.length > 0) {
             const styleTag = allStyleTags.join('\n');
-            layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
+            if (layoutHtml.includes('</head>')) {
+                 layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
+            } else {
+                 layoutHtml += styleTag; // Add styles at the end if no </head> tag
+            }
         }
-
+        
+        const clientScriptTag = `<script src="/engine-client.js"></script>`;
         const scriptsTag = allScripts.length > 0
             ? `<script type="application/json" data-atom-scripts>${JSON.stringify(allScripts)}</script>`
             : '';
-        const clientScriptTag = `<script src="/engine-client.js"></script>`;
         
-        let finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
+        const finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
+
+        if (layoutHtml.includes('</body>')) {
+            layoutHtml = layoutHtml.replace('</body>', finalBodyTag);
+        } else {
+            layoutHtml += finalBodyTag; // Add scripts at the end if no </body> tag
+        }
+
         if (this.debug) {
             layoutHtml = layoutHtml.replace('<body', '<body data-debug-mode="true"');
         }
-        
-        layoutHtml = layoutHtml.replace('</body>', finalBodyTag);
         
         return layoutHtml;
     }
