@@ -1,6 +1,7 @@
 // core/connectors/wise-json-connector.js
 const path = require('path');
 const WiseJSON = require('wise-json-db/wise-json');
+const { Migrator } = require('../migrator.js');
 
 let dbInstance = null;
 let dbInitPromise = null;
@@ -12,6 +13,7 @@ class WiseJsonConnector {
         this.collectionName = config.collection || name;
         this.appPath = appPath;
         this.collection = null;
+        this.migrator = new Migrator(config.migrations);
 
         if (!dbInstance) {
             const dbPath = path.join(this.appPath, 'wise-db-data');
@@ -39,17 +41,23 @@ class WiseJsonConnector {
         
         const allDocs = await this.collection.getAll() || [];
         
-        // --- ИЗМЕНЕНИЕ: Только 'session' имеет особое поведение ---
         if (this.name === 'session') {
             return allDocs; 
         }
 
-        // Все остальные коннекторы, включая 'user', работают по единому правилу
         const metaDoc = await this.collection.findOne({_id: '_meta'});
         const items = allDocs.filter(d => d._id !== '_meta');
         
-        const data = { ...(this.config.initialState || {}), ...(metaDoc || {}), items: items };
+        let data = { ...(this.config.initialState || {}), ...(metaDoc || {}), items: items };
         
+        const migrationResult = this.migrator.migrate(data);
+        if (migrationResult.changed) {
+            console.log(`[Migrator] Data for '${this.name}' has been migrated. Resaving...`);
+            // Здесь важно передать именно объект `data`, а не `migrationResult.data`,
+            // так как migrator может вернуть только часть данных (например, только items).
+            await this.write(data);
+        }
+
         this._runComputations(data);
         return data;
     }
@@ -57,7 +65,6 @@ class WiseJsonConnector {
     async write(newData) {
         await this.initPromise;
         
-        // --- ИЗМЕНЕНИЕ: Убираем проверку на 'user' ---
         if (this.name === 'session') {
              console.warn(`[WiseJsonConnector] Direct write to collection-type connector '${this.name}' is not supported. Use auth actions.`);
              return;
@@ -77,8 +84,12 @@ class WiseJsonConnector {
                 await txnCollection.insertMany(docsToSave);
             }
             
-            if (Object.keys(dataToSave).length > 0) {
-                await txnCollection.insert({_id: '_meta', ...dataToSave});
+            // Удаляем возможное поле _id из мета-данных, чтобы не конфликтовать
+            const metaData = { ...dataToSave };
+            delete metaData._id;
+
+            if (Object.keys(metaData).length > 0) {
+                await txnCollection.insert({_id: '_meta', ...metaData});
             }
 
             await txn.commit();

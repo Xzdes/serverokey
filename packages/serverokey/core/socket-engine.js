@@ -1,13 +1,14 @@
 // core/socket-engine.js
 const WebSocket = require('ws');
+const crypto = require('crypto');
 
 class SocketEngine {
     constructor(httpServer, manifest, connectorManager) {
         this.wss = new WebSocket.Server({ server: httpServer });
         this.manifest = manifest;
         this.connectorManager = connectorManager;
-        this.channels = new Map(); // Хранит информацию о каналах и подписчиках
-        this.clients = new Set();
+        this.channels = new Map();
+        this.clients = new Map();
 
         if (this.manifest.sockets) {
             this._initializeChannels();
@@ -28,15 +29,20 @@ class SocketEngine {
     }
 
     _handleConnection(ws) {
-        console.log('[SocketEngine] Client connected.');
-        this.clients.add(ws);
+        const clientId = crypto.randomBytes(16).toString('hex');
+        ws.id = clientId;
+        this.clients.set(clientId, ws);
+        console.log(`[SocketEngine] Client connected with ID: ${clientId}`);
+
+        // --- ДОБАВЛЕНИЕ: Отправляем клиенту его ID ---
+        ws.send(JSON.stringify({ type: 'socket_id_assigned', id: clientId }));
 
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
                 if (data.type === 'subscribe' && this.channels.has(data.channel)) {
-                    this.channels.get(data.channel).subscribers.add(ws);
-                    console.log(`[SocketEngine] Client subscribed to channel '${data.channel}'`);
+                    this.channels.get(data.channel).subscribers.add(clientId);
+                    console.log(`[SocketEngine] Client ${clientId} subscribed to channel '${data.channel}'`);
                 }
             } catch (e) {
                 console.warn('[SocketEngine] Received invalid message from client:', message);
@@ -44,35 +50,32 @@ class SocketEngine {
         });
 
         ws.on('close', () => {
-            console.log('[SocketEngine] Client disconnected.');
-            this.clients.delete(ws);
-            // Удаляем клиента из всех подписок
+            console.log(`[SocketEngine] Client ${clientId} disconnected.`);
+            this.clients.delete(clientId);
             this.channels.forEach(channel => {
-                channel.subscribers.delete(ws);
+                channel.subscribers.delete(clientId);
             });
         });
 
         ws.on('error', (error) => {
-            console.error('[SocketEngine] WebSocket error:', error);
+            console.error(`[SocketEngine] WebSocket error for client ${clientId}:`, error);
         });
     }
 
-    async notifyOnWrite(connectorName) {
+    async notifyOnWrite(connectorName, initiatorId = null) {
         if (!this.manifest.sockets) return;
 
         for (const [channelName, channel] of this.channels.entries()) {
             if (channel.config.watch === connectorName) {
-                console.log(`[SocketEngine] Notifying channel '${channelName}' due to write on '${connectorName}'`);
+                if (this.debug) console.log(`[SocketEngine] Notifying channel '${channelName}' due to write on '${connectorName}' (initiator: ${initiatorId})`);
                 
                 const context = await this.connectorManager.getContext([connectorName]);
                 const payloadExpression = channel.config.emit.payload;
                 
                 let payload = null;
-                // Упрощенное вычисление, так как у нас нет полного контекста ActionEngine
                 if (context[payloadExpression]) {
                     payload = context[payloadExpression];
                 } else {
-                    console.warn(`[SocketEngine] Could not resolve payload expression '${payloadExpression}'. Sending full connector data.`);
                     payload = context[connectorName];
                 }
 
@@ -81,9 +84,12 @@ class SocketEngine {
                     payload: payload
                 });
 
-                channel.subscribers.forEach(ws => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(message);
+                channel.subscribers.forEach(subscriberId => {
+                    if (subscriberId !== initiatorId) {
+                        const ws = this.clients.get(subscriberId);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(message);
+                        }
                     }
                 });
             }

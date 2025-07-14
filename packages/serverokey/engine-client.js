@@ -1,6 +1,7 @@
 // s:\serverokey\packages\serverokey\core\engine-client.js
 
 const isDebugMode = document.body.hasAttribute('data-debug-mode');
+let socketId = null;
 
 function getActionBody(element) {
     const form = element.closest('form');
@@ -13,9 +14,15 @@ function getActionBody(element) {
     } else if (element.name) {
         data[element.name] = element.value;
     }
-    if (element.tagName === 'BUTTON' && element.name) {
+    // Для кнопок с name и value, добавляем их в тело запроса
+    if (element.tagName === 'BUTTON' && element.name && element.value) {
         data[element.name] = element.value;
     }
+    // Если триггер - инпут внутри формы, но у него самого есть name/value
+    if(element.form && element.name && element.value) {
+        data[element.name] = element.value;
+    }
+
     return JSON.stringify(data);
 }
 
@@ -50,25 +57,25 @@ async function handleAction(event) {
     if (form && form.hasAttribute('data-native-submit')) {
         return;
     }
+    
+    // Находим ближайший элемент с atom-action, начиная с цели события
+    const element = event.target.closest('[atom-action]');
 
-    let element = event.target.closest('[atom-action]');
-    if (event.type === 'submit' && !element && form) {
-        element = form;
+    // Если такой элемент не найден, ничего не делаем
+    if (!element) {
+        return;
     }
-    
-    if (!element || !element.hasAttribute('atom-action')) {
-       if (event.type === 'submit' && form && form.getAttribute('action') && !form.hasAttribute('atom-action')) {
-            return;
-        }
-        if(!element) return;
-    }
-    
+
     const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
-    if (event.type !== requiredEventType) {
+    
+    // Если тип события не совпадает с требуемым, выходим.
+    // Исключение: для сабмита формы, событие submit может быть инициировано кликом по кнопке type="submit"
+    if (event.type !== requiredEventType && !(event.type === 'click' && event.target.type === 'submit' && requiredEventType === 'submit')) {
         return;
     }
 
     event.preventDefault();
+    event.stopPropagation();
 
     const action = element.getAttribute('atom-action');
     const targetSelector = element.getAttribute('atom-target');
@@ -82,17 +89,23 @@ async function handleAction(event) {
     
     const fetchOptions = {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-Socket-Id': socketId 
+        },
     };
 
     if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
-        fetchOptions.body = getActionBody(event.target);
+        // Тело запроса всегда формируем от `element`, а не `event.target`
+        fetchOptions.body = getActionBody(element);
     }
 
     try {
         if (isDebugMode) {
             console.groupCollapsed(`[DEBUG] Action Triggered: ${action}`);
-            console.log('DOM Element:', element);
+            console.log('Element:', element);
+            console.log('Event Target:', event.target);
+            console.log('Socket ID:', socketId);
             if(fetchOptions.body) console.log('Body Sent:', JSON.parse(fetchOptions.body));
             console.groupEnd();
         }
@@ -151,17 +164,23 @@ function initializeWebSocket() {
 
     ws.onopen = () => {
         console.log('[Engine] WebSocket connection established.');
-        document.querySelectorAll('[atom-socket]').forEach(element => {
-            const channelName = element.getAttribute('atom-socket');
-            if (channelName) {
-                ws.send(JSON.stringify({ type: 'subscribe', channel: channelName }));
-            }
-        });
     };
 
     ws.onmessage = (message) => {
         try {
             const data = JSON.parse(message.data);
+            if (data.type === 'socket_id_assigned') {
+                socketId = data.id;
+                console.log(`[Engine] WebSocket ID assigned: ${socketId}`);
+                document.querySelectorAll('[atom-socket]').forEach(element => {
+                    const channelName = element.getAttribute('atom-socket');
+                    if (channelName) {
+                        ws.send(JSON.stringify({ type: 'subscribe', channel: channelName }));
+                    }
+                });
+                return;
+            }
+
             if (isDebugMode) {
                 console.groupCollapsed(`[DEBUG] WebSocket Event Received: ${data.event}`);
                 console.log('Payload:', data.payload);
@@ -183,6 +202,7 @@ function initializeWebSocket() {
 
     ws.onclose = () => {
         console.log('[Engine] WebSocket connection closed. Reconnecting in 3 seconds...');
+        socketId = null;
         setTimeout(initializeWebSocket, 3000);
     };
 

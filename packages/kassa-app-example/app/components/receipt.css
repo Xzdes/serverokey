@@ -71,28 +71,42 @@ p {
   margin: 0;
 }
 
-/* Костыль для исправления выравнивания p */
 p b {
   text-align: right;
   font-size: 1.1rem;
   margin: 0;
 }
 
-#clear-btn {
-  background-color: #fff1f0;
-  border: 1px solid #ffccc7;
-  color: #cf1322;
+/* --- ИЗМЕНЕНИЕ: Стилизуем общий класс кнопок --- */
+.action-button {
+  background-color: #f0f0f0;
+  border: 1px solid #d9d9d9;
   border-radius: 8px;
   padding: 8px 16px;
   font-weight: 500;
   transition: all 0.2s ease-in-out;
+  width: 100%; /* Делаем все кнопки на всю ширину */
+  margin-top: 10px;
 }
 
-#clear-btn:hover {
+.action-button:hover {
+  background-color: #e8e8e8;
+  border-color: #bfbfbf;
+}
+
+/* Модификатор для "опасной" кнопки */
+.action-button.danger {
+  background-color: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #cf1322;
+}
+.action-button.danger:hover {
   background-color: #ffccc7;
   border-color: #ffa39e;
   transform: translateY(-1px);
 }
+/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
+
 
 .remove-btn {
   background-color: transparent;
@@ -136,11 +150,6 @@ hr {
   padding-top: 10px;
 }
 
-#clear-btn {
-  margin-top: 20px; /* отодвинем кнопку очистки */
-}
-
-/* ... (старые стили) ... */
 .coupon-form {
   margin-top: 20px;
   border-top: 1px solid #f0f0f0;
@@ -148,15 +157,16 @@ hr {
   display: flex;
   gap: 10px;
 }
+
 .coupon-form input {
   flex-grow: 1;
   padding: 8px;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
 }
-.coupon-form button {
-  background-color: #f0f0f0;
-  border: 1px solid #d9d9d9;
-  border-radius: 8px;
-  padding: 8px 16px;
+
+/* Убираем старый стиль для кнопки в форме, так как теперь используется .action-button */
+.coupon-form .action-button {
+  width: auto; /* Возвращаем авто-ширину для кнопки в форме */
+  margin-top: 0;
 }

@@ -63,7 +63,13 @@ class RequestHandler {
         }
 
         if (!routeConfig) {
-            res.writeHead(404).end('Not Found');
+            const internalRoute = this.findRoute(url.pathname.substring(1));
+            if (!internalRoute || internalRoute.internal !== true) {
+                 res.writeHead(404).end('Not Found');
+                 return;
+            }
+            console.warn(`[RequestHandler] Attempted to access internal route '${url.pathname}' via HTTP. Denied.`);
+            res.writeHead(403).end('Forbidden');
             return;
         }
 
@@ -85,7 +91,9 @@ class RequestHandler {
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                await this.runAction(routeKey, { user, body }, res);
+                // --- ИЗМЕНЕНИЕ: Получаем ID сокета из заголовков ---
+                const socketId = req.headers['x-socket-id'] || null;
+                await this.runAction(routeKey, { user, body, socketId }, res, this.debug);
             }
         } catch (error) {
             console.error(`[Engine] Error processing route ${routeKey}:`, error);
@@ -100,20 +108,19 @@ class RequestHandler {
         return null;
     }
 
-    async runAction(routeName, initialContext, res) {
+    async runAction(routeName, initialContext, res, debug = false) {
         const routeConfig = this.findRoute(routeName);
         if (!routeConfig) {
             throw new Error(`[RequestHandler] Action route '${routeName}' not found.`);
         }
-
-        const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
         
         const context = {
-            data: dataFromReads,
-            ...initialContext
+            data: initialContext.data || await this.connectorManager.getContext(routeConfig.reads || []),
+            user: initialContext.user,
+            body: initialContext.body,
         };
-
-        const engine = new ActionEngine(context, this.appPath, this.assetLoader, this);
+        
+        const engine = new ActionEngine(context, this.appPath, this.assetLoader, this, debug);
         await engine.run(routeConfig.steps || []);
         const finalContext = engine.context;
 
@@ -134,7 +141,8 @@ class RequestHandler {
             if (finalContext.data[key]) {
                 await this.connectorManager.getConnector(key).write(finalContext.data[key]);
                 if (this.socketEngine) {
-                    await this.socketEngine.notifyOnWrite(key);
+                    // --- ИЗМЕНЕНИЕ: Передаем ID инициатора ---
+                    await this.socketEngine.notifyOnWrite(key, initialContext.socketId);
                 }
             }
         }

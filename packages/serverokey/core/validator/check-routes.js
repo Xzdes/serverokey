@@ -1,21 +1,7 @@
 // core/validator/check-routes.js
+const fs = require('fs');
 const path = require('path');
 const { addIssue, checkFileExists } = require('./utils');
-
-function getSuggestion(str, validOptions) {
-    if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
-    let bestMatch = '';
-    let minDistance = 3; 
-
-    for (const option of validOptions) {
-        const d = levenshtein(str, option);
-        if (d < minDistance) {
-            minDistance = d;
-            bestMatch = option;
-        }
-    }
-    return bestMatch ? `Did you mean "${bestMatch}"?` : '';
-}
 
 function levenshtein(a, b) {
     const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
@@ -30,6 +16,22 @@ function levenshtein(a, b) {
     return matrix[b.length][a.length];
 }
 
+function getSuggestion(str, validOptions) {
+    if (!str || !Array.isArray(validOptions) || validOptions.length === 0) return '';
+    let bestMatch = '';
+    let minDistance = Math.floor(str.length / 2); // Дистанция не более половины длины слова
+    if (minDistance < 2) minDistance = 2;
+
+
+    for (const option of validOptions) {
+        const d = levenshtein(str, option);
+        if (d < minDistance) {
+            minDistance = d;
+            bestMatch = option;
+        }
+    }
+    return bestMatch ? `Did you mean "${bestMatch}"?` : '';
+}
 
 function validateRoutes(manifest, appPath) {
   const routes = manifest.routes || {};
@@ -49,7 +51,7 @@ function validateRoutes(manifest, appPath) {
     if (route.type === 'view') {
       validateViewRoute(route, category, componentNames, connectorNames);
     } else if (route.type === 'action') {
-      validateActionRoute(route, category, componentNames, connectorNames, appPath);
+      validateActionRoute(route, category, componentNames, connectorNames, appPath, manifest);
     }
   }
 }
@@ -75,7 +77,7 @@ function validateViewRoute(route, category, componentNames, connectorNames) {
   }
 }
 
-function validateActionRoute(route, category, componentNames, connectorNames, appPath) {
+function validateActionRoute(route, category, componentNames, connectorNames, appPath, manifest) {
   if (route.internal === true) {
       return;
   }
@@ -104,19 +106,23 @@ function validateActionRoute(route, category, componentNames, connectorNames, ap
   }
 
   if (Array.isArray(route.steps)) {
-    checkSteps(route.steps, category, reads, appPath);
+    checkSteps(route.steps, category, reads, appPath, manifest);
   }
 }
 
-function checkSteps(steps, category, availableReads, appPath) {
+function checkSteps(steps, category, availableReads, appPath, manifest) {
     steps.forEach(step => {
         if (!step) return;
         if(step.run) {
-             checkFileExists(path.join(appPath, 'app', 'actions', step.run + '.js'), category, `run script '${step.run}'`);
+             const runPath = path.join(appPath, 'app', 'actions', step.run + '.js');
+             if (!fs.existsSync(runPath)) {
+                 const allActions = fs.readdirSync(path.join(appPath, 'app', 'actions')).map(f => f.replace('.js', ''));
+                 addIssue('error', category, `File not found for run script '${step.run}'. Looked in: ${runPath}`, getSuggestion(step.run, allActions));
+             }
         }
-        if(step.then) checkSteps(step.then, category, availableReads, appPath);
-        if(step.else) checkSteps(step.else, category, availableReads, appPath);
-        if(step.steps) checkSteps(step.steps, category, availableReads, appPath);
+        if(step.then) checkSteps(step.then, category, availableReads, appPath, manifest);
+        if(step.else) checkSteps(step.else, category, availableReads, appPath, manifest);
+        if(step.steps) checkSteps(step.steps, category, availableReads, appPath, manifest);
         if(step.if) checkExpression(step.if, category, availableReads);
         if(step.forEach) checkExpression(step.forEach, category, availableReads);
         if(step['http:get']) {
@@ -124,6 +130,12 @@ function checkSteps(steps, category, availableReads, appPath) {
             if (!httpConfig.url) addIssue('error', category, `Step 'http:get' is missing required 'url' property.`);
             if (!httpConfig.saveTo) addIssue('error', category, `Step 'http:get' is missing required 'saveTo' property.`);
             if(httpConfig.saveTo && !httpConfig.saveTo.startsWith('context.')) addIssue('warning', category, `In 'http:get', it is recommended to save results to 'context.' (e.g., 'context.myVar' instead of '${httpConfig.saveTo}').`);
+        }
+        if(step['action:run'] && step['action:run'].name) {
+            const actionName = step['action:run'].name;
+            if (!manifest.routes[actionName]) {
+                addIssue('error', category, `Internal action '${actionName}' for 'action:run' is not defined in routes.`, getSuggestion(actionName, Object.keys(manifest.routes)));
+            }
         }
     });
 }

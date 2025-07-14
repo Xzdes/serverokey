@@ -4,22 +4,31 @@ const https = require('https');
 const { z } = require('zod');
 const path = require('path');
 
-function evaluate(expression, context, appPath) {
+function evaluate(expression, context, appPath, debug = false) {
     if (typeof expression !== 'string') return expression;
-    const contextKeys = Object.keys(context);
-    const contextValues = Object.values(context);
-    const func = new Function(...contextKeys, 'require', `return ${expression};`);
-    return func(...contextValues, (module) => {
-        try {
-            return require(module);
-        } catch (e) {
-            try {
-                return require(path.resolve(appPath, module));
-            } catch (e2) {
-                return require(path.resolve(appPath, 'app', module));
-            }
+
+    try {
+        const contextKeys = Object.keys(context);
+        const contextValues = Object.values(context);
+        const func = new Function(...contextKeys, 'require', `return ${expression};`);
+        
+        const smartRequire = (module) => {
+            try { return require(module); } catch (e) {
+            try { return require(path.resolve(appPath, module)); } catch (e2) {
+            try { return require(path.resolve(appPath, 'app', module)); } catch (e3) {
+            try { return require(path.resolve(appPath, 'app', 'actions', module)); } catch (e4) {
+                console.error(`[smartRequire] Failed to resolve module '${module}'`);
+                throw e4;
+            }}}}
+        };
+
+        return func(...contextValues, smartRequire);
+    } catch (error) {
+        if (debug) {
+            console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
-    });
+        return undefined;
+    }
 }
 
 function httpGet(url) {
@@ -57,12 +66,13 @@ function httpGet(url) {
 
 
 class ActionEngine {
-    constructor(context, appPath, assetLoader, requestHandler) {
+    constructor(context, appPath, assetLoader, requestHandler, debug = false) {
         this.context = JSON.parse(JSON.stringify(context));
         this.context.zod = z;
         this.appPath = appPath;
         this.assetLoader = assetLoader;
         this.requestHandler = requestHandler;
+        this.debug = debug;
         this.context._internal = {}; 
     }
 
@@ -77,21 +87,21 @@ class ActionEngine {
     async executeStep(step) {
         try {
             if (step.set) {
-                const value = evaluate(step.to, this.context, this.appPath);
+                const value = evaluate(step.to, this.context, this.appPath, this.debug);
                 this._setValue(step.set, value);
             } else if (step.if) {
-                const condition = evaluate(step.if, this.context, this.appPath);
-                if (condition && step.then) {
-                    await this.run(step.then);
-                } else if (!condition && step.else) {
-                    await this.run(step.else);
+                const condition = evaluate(step.if, this.context, this.appPath, this.debug);
+                if (condition) {
+                    if(step.then) await this.run(step.then);
+                } else {
+                    if(step.else) await this.run(step.else);
                 }
             } else if (step.forEach) {
-                const list = evaluate(step.forEach, this.context, this.appPath);
+                const list = evaluate(step.forEach, this.context, this.appPath, this.debug);
                 const itemName = step.as || 'item';
                 if (Array.isArray(list)) {
                     for (const item of list) {
-                        const loopEngine = new ActionEngine({ ...this.context, [itemName]: item }, this.appPath, this.assetLoader, this.requestHandler);
+                        const loopEngine = new ActionEngine({ ...this.context, [itemName]: item }, this.appPath, this.assetLoader, this.requestHandler, this.debug);
                         await loopEngine.run(step.steps);
                         Object.assign(this.context, loopEngine.context);
                         Object.assign(item, loopEngine.context[itemName]);
@@ -99,7 +109,7 @@ class ActionEngine {
                 }
             } else if (step['http:get']) {
                 const config = step['http:get'];
-                const url = evaluate(config.url, this.context, this.appPath);
+                const url = evaluate(config.url, this.context, this.appPath, this.debug);
                 try {
                     const data = await httpGet(url);
                     this._setValue(config.saveTo, data);
@@ -107,15 +117,21 @@ class ActionEngine {
                     this._setValue(config.saveTo, { error: error.message });
                 }
             } else if (step['auth:login']) {
-                this.context._internal.loginUser = evaluate(step['auth:login'], this.context, this.appPath);
+                this.context._internal.loginUser = evaluate(step['auth:login'], this.context, this.appPath, this.debug);
             } else if (step['auth:logout']) {
                 this.context._internal.logout = true;
             } else if (step['client:redirect']) {
-                this.context._internal.redirectUrl = evaluate(step['client:redirect'], this.context, this.appPath);
+                this.context._internal.redirectUrl = evaluate(step['client:redirect'], this.context, this.appPath, this.debug);
                 this.context._internal.interrupt = true;
             } 
             else if (step.run) {
-                const handlerName = step.run;
+                let handlerName = step.run;
+                if (handlerName.endsWith('.js')) {
+                    handlerName = handlerName.slice(0, -3);
+                }
+                const pathParts = handlerName.split(/[\\/]/);
+                handlerName = pathParts[pathParts.length - 1];
+
                 const handler = this.assetLoader.getAction(handlerName);
                 if (handler) {
                     await handler(this.context, this.context.body);
@@ -126,27 +142,16 @@ class ActionEngine {
             else if (step['action:run']) {
                 const config = step['action:run'];
                 const targetActionName = config.name;
-                const targetActionRoute = this.requestHandler.findRoute(targetActionName);
-
-                if (!targetActionRoute) {
-                    throw new Error(`[ActionEngine] Action '${targetActionName}' not found for 'action:run' step.`);
-                }
                 
-                const withData = config.with ? evaluate(config.with, this.context, this.appPath) : {};
-
                 const subContext = {
                     user: this.context.user,
                     body: this.context.body,
-                    data: { ...this.context.data, ...withData }
+                    data: this.context.data
                 };
                 
-                const resultContext = await this.requestHandler.runAction(targetActionName, subContext, null);
-
-                if(config.saveTo) {
-                    this._setValue(config.saveTo, resultContext);
-                } else {
-                    Object.assign(this.context.data, resultContext.data);
-                }
+                const resultContext = await this.requestHandler.runAction(targetActionName, subContext, null, this.debug);
+                
+                Object.assign(this.context.data, resultContext.data);
             }
             else {
                 console.warn('[ActionEngine] Unknown or incomplete step:', step);

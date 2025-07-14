@@ -39,29 +39,31 @@
       <p class="final-total"><b>Итого:</b> <b>{{data.receipt.finalTotal}} руб.</b></p>
     </div>
     
+    <!-- ИЗМЕНЕНИЕ: Добавляем общий класс -->
     <button 
       id="clear-btn"
+      class="action-button danger"
       atom-action="POST /action/clearReceipt"
       atom-target="#receipt-container"
     >
       Очистить чек
     </button>
     
-    <form class="coupon-form">
+    <form class="coupon-form" atom-action="POST /action/applyCoupon" atom-target="#receipt-container">
       <input type="text" name="coupon_code" placeholder="Промокод">
-      <button 
-        atom-action="POST /action/applyCoupon"
-        atom-target="#receipt-container"
-      >
+      <!-- ИЗМЕНЕНИЕ: Добавляем общий класс -->
+      <button type="submit" class="action-button">
         Применить
       </button>
-
-      <button 
-          id="bonus-btn"
-          atom-action="POST /action/applyBonus"
-          atom-target="#receipt-container"
-        >
-          Применить Бонус
-        </button>
     </form>
+    
+    <!-- ИЗМЕНЕНИЕ: Добавляем общий класс -->
+    <button 
+        id="bonus-btn"
+        class="action-button"
+        atom-action="POST /action/applyBonus"
+        atom-target="#receipt-container"
+      >
+        Применить Бонус
+      </button>
 </div>
