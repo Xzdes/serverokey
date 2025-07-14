@@ -21,13 +21,13 @@ class AssetLoader {
                 if (file.endsWith('.js')) {
                     const operationName = path.basename(file, '.js');
                     const operationPath = path.join(operationsPath, file);
-                    this.operations[operationName] = require(operationPath);
+                    // *** ИСПРАВЛЕНИЕ: Используем абсолютный путь для require ***
+                    this.operations[operationName] = require(path.resolve(operationPath));
                     console.log(`[AssetLoader] Cached custom operation: '${operationName}'`);
                 }
             });
         }
         
-        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Загружаем все экшены из папки ---
         const actionsPath = path.join(this.appPath, 'app', 'actions');
         if (fs.existsSync(actionsPath)) {
             fs.readdirSync(actionsPath).forEach(file => {
@@ -35,7 +35,8 @@ class AssetLoader {
                     const actionName = path.basename(file, '.js');
                     const actionPath = path.join(actionsPath, file);
                     try {
-                        this.actions[actionName] = require(actionPath);
+                        // *** ИСПРАВЛЕНИЕ: Используем абсолютный путь для require ***
+                        this.actions[actionName] = require(path.resolve(actionPath));
                         console.log(`[AssetLoader] Cached action: '${actionName}'`);
                     } catch (e) {
                         console.error(`[AssetLoader] CRITICAL: Could not load action file '${actionName}' from ${actionPath}`);
@@ -44,7 +45,6 @@ class AssetLoader {
                 }
             });
         }
-        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         for (const componentName in this.manifest.components) {
             const config = this.manifest.components[componentName];

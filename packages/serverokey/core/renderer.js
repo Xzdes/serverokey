@@ -21,7 +21,6 @@ class Renderer {
                 }
             }
             if (Array.isArray(globalsConfig.injectData)) {
-                // Убедимся, что connectorManager существует, прежде чем его использовать
                 if (this.connectorManager) {
                     const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
                     Object.assign(context, injectedData);
@@ -61,17 +60,26 @@ class Renderer {
         };
 
         return (tree) => {
-            tree.walk(node => {
-                if (node && node.attrs && node.attrs['atom-if']) {
-                    if (evaluateCondition(node.attrs['atom-if'])) {
-                        delete node.attrs['atom-if'];
-                    } else {
-                        return null;
-                    }
+            // Используем tree.match, чтобы найти все узлы с атрибутом atom-if
+            tree.match({ attrs: { 'atom-if': true } }, (node) => {
+                const condition = node.attrs['atom-if'];
+                // Удаляем атрибут в любом случае, чтобы он не попал в финальный HTML
+                delete node.attrs['atom-if'];
+
+                // Если условие ложно, мы должны "удалить" узел.
+                // Самый надежный способ в posthtml - заменить его на узел без тега и контента.
+                if (!evaluateCondition(condition)) {
+                    // Возвращая измененный узел, мы заменяем им исходный в дереве.
+                    return {
+                        ...node,
+                        tag: false,     // Превращает узел в простой текст
+                        content: ['']   // Текст делаем пустым
+                    };
                 }
+
+                // Если условие истинно, просто возвращаем узел (уже без атрибута atom-if).
                 return node;
             });
-            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
             return tree;
         };
     }
@@ -91,7 +99,6 @@ class Renderer {
                 }
                 return node;
             });
-            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
             return tree;
         };
     }
@@ -107,7 +114,6 @@ class Renderer {
                 }
                 return node;
             });
-            // *** ИСПРАВЛЕНИЕ: Плагин должен возвращать дерево ***
             return tree;
         };
     }
@@ -241,7 +247,7 @@ class Renderer {
             if (layoutHtml.includes('</head>')) {
                  layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
             } else {
-                 layoutHtml += styleTag; // Add styles at the end if no </head> tag
+                 layoutHtml += styleTag;
             }
         }
         
@@ -255,7 +261,7 @@ class Renderer {
         if (layoutHtml.includes('</body>')) {
             layoutHtml = layoutHtml.replace('</body>', finalBodyTag);
         } else {
-            layoutHtml += finalBodyTag; // Add scripts at the end if no </body> tag
+            layoutHtml += finalBodyTag;
         }
 
         if (this.debug) {
