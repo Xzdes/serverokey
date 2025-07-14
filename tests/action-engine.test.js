@@ -3,11 +3,15 @@ const fs = require('fs/promises');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-// Очистка кэша для тестируемых модулей
+// Очистка кэша для всех используемых модулей ядра
 const ACTION_ENGINE_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/action-engine.js');
 if (require.cache[ACTION_ENGINE_PATH]) delete require.cache[ACTION_ENGINE_PATH];
 const ASSET_LOADER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js');
 if (require.cache[ASSET_LOADER_PATH]) delete require.cache[ASSET_LOADER_PATH];
+const REQUEST_HANDLER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js');
+if (require.cache[REQUEST_HANDLER_PATH]) delete require.cache[REQUEST_HANDLER_PATH];
+const CONNECTOR_MANAGER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/connector-manager.js');
+if (require.cache[CONNECTOR_MANAGER_PATH]) delete require.cache[CONNECTOR_MANAGER_PATH];
 
 
 /**
@@ -38,15 +42,11 @@ function check(condition, description, actual, expected) {
 
 /**
  * Инициализирует ActionEngine.
- * @param {object} initialContext - Начальный контекст.
- * @param {AssetLoader} [assetLoader=null] - Экземпляр AssetLoader для тестов с `run`.
- * @param {string} [appPath=PROJECT_ROOT] - Путь к приложению для тестов с `run`.
- * @returns {ActionEngine}
  */
-function setupActionEngine(initialContext, assetLoader = null, appPath = PROJECT_ROOT) {
+function setupActionEngine(initialContext, assetLoader = null, requestHandler = null, appPath = PROJECT_ROOT) {
     log('Setting up ActionEngine with context:', initialContext);
     const { ActionEngine } = require(ACTION_ENGINE_PATH);
-    const engine = new ActionEngine(initialContext, appPath, assetLoader, null, true);
+    const engine = new ActionEngine(initialContext, appPath, assetLoader, requestHandler, true);
     log('ActionEngine setup complete.');
     return engine;
 }
@@ -57,12 +57,8 @@ function setupActionEngine(initialContext, assetLoader = null, appPath = PROJECT
 async function runSetStepTest() {
     log('--- Starting Test for "set" step ---');
     const initialContext = {
-        data: {
-            cart: { items: [], total: 0 }
-        },
-        body: {
-            price: 150
-        }
+        data: { cart: { items: [], total: 0 } },
+        body: { price: 150 }
     };
     const engine = setupActionEngine(initialContext);
 
@@ -129,24 +125,17 @@ async function runRunStepTest() {
                 context.data.sum = body.a + body.b;
             };
         `;
-        const options = {
-            files: { 'app/actions/myTestAction.js': actionFileContent }
-        };
+        const options = { files: { 'app/actions/myTestAction.js': actionFileContent } };
         appPath = await createTestAppStructure(testName, options);
 
         log('Setting up environment for "run" step test...');
         const { AssetLoader } = require(ASSET_LOADER_PATH);
         const assetLoader = new AssetLoader(appPath, { components: {} });
 
-        const initialContext = {
-            data: {},
-            body: { a: 5, b: 10 }
-        };
-        const engine = setupActionEngine(initialContext, assetLoader, appPath);
+        const initialContext = { data: {}, body: { a: 5, b: 10 } };
+        const engine = setupActionEngine(initialContext, assetLoader, null, appPath);
 
-        const steps = [
-            { "run": "myTestAction" }
-        ];
+        const steps = [{ "run": "myTestAction" }];
         log('Running steps:', steps);
         await engine.run(steps);
         const finalContext = engine.context;
@@ -154,6 +143,66 @@ async function runRunStepTest() {
 
         check(finalContext.data.result === 'Hello from action file!', 'Step "run" should execute code from an external file.');
         check(finalContext.data.sum === 15, 'Action file should have access to the "body" object.');
+
+    } finally {
+        if (appPath) await cleanupTestApp(appPath);
+    }
+}
+
+async function runActionRunStepTest() {
+    log('--- Starting Test for "action:run" step ---');
+    const testName = 'action-engine-action-run-step';
+    const { createTestAppStructure, cleanupTestApp } = require('./_utils/test-setup.js');
+    let appPath;
+
+    try {
+        const manifest = {
+            components: {},
+            connectors: {},
+            routes: {
+                "calculateTotal": {
+                    "type": "action", "internal": true,
+                    "steps": [ { "set": "data.cart.total", "to": "data.cart.items.reduce((sum, item) => sum + item.price, 0)" } ]
+                },
+                "POST /addItem": {
+                    "type": "action",
+                    "steps": [
+                        { "set": "data.cart.items", "to": "data.cart.items.concat([{ price: body.price }])" },
+                        { "action:run": { "name": "calculateTotal" } }
+                    ]
+                }
+            }
+        };
+
+        const options = { manifest };
+        appPath = await createTestAppStructure(testName, options);
+
+        log('Setting up environment for "action:run" step test...');
+        const { AssetLoader } = require(ASSET_LOADER_PATH);
+        const { RequestHandler } = require(REQUEST_HANDLER_PATH);
+        const { ConnectorManager } = require(CONNECTOR_MANAGER_PATH);
+
+        const manifestInstance = require(path.join(appPath, 'manifest.js'));
+        const connectorManager = new ConnectorManager(appPath, manifestInstance);
+        const assetLoader = new AssetLoader(appPath, manifestInstance);
+        const requestHandler = new RequestHandler(manifestInstance, connectorManager, assetLoader, null, appPath);
+
+        const initialContext = {
+            data: { cart: { items: [{ price: 100 }], total: 100 } },
+            body: { price: 50 }
+        };
+        
+        const engine = setupActionEngine(initialContext, assetLoader, requestHandler, appPath);
+
+        const routeConfig = manifest.routes['POST /addItem'];
+        log('Running steps:', routeConfig.steps);
+        await engine.run(routeConfig.steps);
+        const finalContext = engine.context;
+        log('Final context for "action:run" test:', finalContext);
+
+        check(finalContext.data.cart.items.length === 2, 'The item should be added to the cart.');
+        check(finalContext.data.cart.items[1].price === 50, 'The new item should have the correct price from body.');
+        check(finalContext.data.cart.total === 150, 'Step "action:run" should have recalculated the total correctly.');
 
     } finally {
         if (appPath) await cleanupTestApp(appPath);
@@ -168,6 +217,7 @@ async function main() {
     await runSetStepTest();
     await runIfThenElseStepTest();
     await runRunStepTest();
+    await runActionRunStepTest();
     console.log('\n🏆 All ActionEngine tests passed successfully!');
 }
 

@@ -7,14 +7,19 @@ const { AuthEngine } = require('./auth-engine.js');
 const cookie = require('cookie');
 
 class RequestHandler {
-    constructor(manifest, connectorManager, assetLoader, renderer, modulePath, options = {}) {
+    constructor(manifest, connectorManager, assetLoader, renderer, appPath, options = {}) {
         this.manifest = manifest;
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
-        this.modulePath = modulePath;
+        
+        // Используем переданный appPath вместо process.cwd()
+        this.appPath = appPath;
+        if (!this.appPath) {
+            throw new Error('[RequestHandler] appPath must be provided.');
+        }
+
         this.debug = options.debug || false;
-        this.appPath = path.dirname(require.resolve(`${process.cwd()}/manifest.js`));
         
         this.authEngine = null;
         this.userConnector = null;
@@ -91,7 +96,6 @@ class RequestHandler {
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                // --- ИЗМЕНЕНИЕ: Получаем ID сокета из заголовков ---
                 const socketId = req.headers['x-socket-id'] || null;
                 await this.runAction(routeKey, { user, body, socketId }, res, this.debug);
             }
@@ -141,7 +145,6 @@ class RequestHandler {
             if (finalContext.data[key]) {
                 await this.connectorManager.getConnector(key).write(finalContext.data[key]);
                 if (this.socketEngine) {
-                    // --- ИЗМЕНЕНИЕ: Передаем ID инициатора ---
                     await this.socketEngine.notifyOnWrite(key, initialContext.socketId);
                 }
             }

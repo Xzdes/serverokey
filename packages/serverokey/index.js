@@ -18,12 +18,10 @@ function createServer(appPath, options = {}) {
 
   const manifest = loadManifest(appPath);
   
-  const modulePath = __dirname; 
-  
   const connectorManager = new ConnectorManager(appPath, manifest);
   const assetLoader = new AssetLoader(appPath, manifest);
-  const renderer = new Renderer(assetLoader, manifest, connectorManager, modulePath, { debug });
-  const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, renderer, modulePath, { debug });
+  const renderer = new Renderer(assetLoader, manifest, connectorManager, appPath, { debug });
+  const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, renderer, appPath, { debug });
 
   const server = http.createServer(requestHandler.handle.bind(requestHandler));
   
