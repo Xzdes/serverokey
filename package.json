@@ -6,7 +6,8 @@
   "scripts": {
     "start:example": "npm start --workspace=kassa-app-example",
     "validate:example": "npm run validate --workspace=kassa-app-example",
-    "bootstrap": "npm install"
+    "bootstrap": "npm install",
+    "test": "node ./tests/run-all-tests.js"
   },
   "workspaces": [
     "packages/*"
