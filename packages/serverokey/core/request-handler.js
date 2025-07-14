@@ -18,7 +18,12 @@ class RequestHandler {
         
         this.authEngine = null;
         this.userConnector = null;
+        this.socketEngine = null;
         this.authInitPromise = this._initializeAuthEngine();
+    }
+
+    setSocketEngine(socketEngine) {
+        this.socketEngine = socketEngine;
     }
 
     async _initializeAuthEngine() {
@@ -48,6 +53,8 @@ class RequestHandler {
                 user = await this.userConnector.collection.getById(session.userId);
             }
         }
+        
+        const routeConfig = this.findRoute(routeKey);
 
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
@@ -55,7 +62,6 @@ class RequestHandler {
             return;
         }
 
-        const routeConfig = this.manifest.routes[routeKey];
         if (!routeConfig) {
             res.writeHead(404).end('Not Found');
             return;
@@ -79,58 +85,75 @@ class RequestHandler {
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
-                
-                const context = {
-                    data: dataFromReads,
-                    user: user || null,
-                    body: body
-                };
-
-                const engine = new ActionEngine(context, this.appPath, this.assetLoader);
-                await engine.run(routeConfig.steps || []);
-                const finalContext = engine.context;
-
-                const internalActions = finalContext._internal || {};
-                
-                if (internalActions.loginUser && this.authEngine) {
-                    const sessionId = await this.authEngine.createSession(internalActions.loginUser);
-                    res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
-                        httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
-                    }));
-                }
-                
-                if (internalActions.logout && this.authEngine) {
-                    await this.authEngine.clearSession(req, res);
-                }
-
-                for (const key of (routeConfig.writes || [])) {
-                    if (finalContext.data[key]) {
-                        await this.connectorManager.getConnector(key).write(finalContext.data[key]);
-                    }
-                }
-
-                const responsePayload = {};
-                
-                if (internalActions.redirectUrl) {
-                    responsePayload.redirectUrl = internalActions.redirectUrl;
-                }
-                
-                if (routeConfig.update && !internalActions.redirectUrl) {
-                     const componentRenderContext = {
-                        data: finalContext.data,
-                        user: finalContext.user,
-                     };
-                     const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, url);
-                     Object.assign(responsePayload, componentUpdate);
-                }
-                
-                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));
+                await this.runAction(routeKey, { user, body }, res);
             }
         } catch (error) {
             console.error(`[Engine] Error processing route ${routeKey}:`, error);
             res.writeHead(500).end('Internal Server Error');
         }
+    }
+    
+    findRoute(key) {
+        if (this.manifest.routes[key]) {
+            return this.manifest.routes[key];
+        }
+        return null;
+    }
+
+    async runAction(routeName, initialContext, res) {
+        const routeConfig = this.findRoute(routeName);
+        if (!routeConfig) {
+            throw new Error(`[RequestHandler] Action route '${routeName}' not found.`);
+        }
+
+        const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
+        
+        const context = {
+            data: dataFromReads,
+            ...initialContext
+        };
+
+        const engine = new ActionEngine(context, this.appPath, this.assetLoader, this);
+        await engine.run(routeConfig.steps || []);
+        const finalContext = engine.context;
+
+        const internalActions = finalContext._internal || {};
+        
+        if (internalActions.loginUser && this.authEngine) {
+            const sessionId = await this.authEngine.createSession(internalActions.loginUser);
+            if(res) res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
+                httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
+            }));
+        }
+        
+        if (internalActions.logout && this.authEngine) {
+            if(res) await this.authEngine.clearSession(res.req, res);
+        }
+
+        for (const key of (routeConfig.writes || [])) {
+            if (finalContext.data[key]) {
+                await this.connectorManager.getConnector(key).write(finalContext.data[key]);
+                if (this.socketEngine) {
+                    await this.socketEngine.notifyOnWrite(key);
+                }
+            }
+        }
+
+        if (res) {
+            const responsePayload = {};
+            if (internalActions.redirectUrl) {
+                responsePayload.redirectUrl = internalActions.redirectUrl;
+            }
+            if (routeConfig.update && !internalActions.redirectUrl) {
+                 const currentUrl = res.req ? new URL(res.req.url, `http://${res.req.headers.host}`) : null;
+                 const componentRenderContext = { data: finalContext.data, user: finalContext.user };
+                 const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);
+                 Object.assign(responsePayload, componentUpdate);
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));
+        }
+
+        return finalContext;
     }
 
     _parseBody(req) {

@@ -76,8 +76,13 @@ function validateViewRoute(route, category, componentNames, connectorNames) {
 }
 
 function validateActionRoute(route, category, componentNames, connectorNames, appPath) {
+  if (route.internal === true) {
+      return;
+  }
+
   if (!route.steps) {
     addIssue('error', category, `Action route must have a 'steps' property.`);
+    return;
   }
 
   const reads = new Set(route.reads || []);
@@ -90,7 +95,7 @@ function validateActionRoute(route, category, componentNames, connectorNames, ap
     if (!connectorNames.includes(name)) addIssue('error', category, `Write connector '${name}' is not defined.`, getSuggestion(name, connectorNames));
   });
   
-  const hasRedirect = JSON.stringify(route.steps).includes('"client:redirect"');
+  const hasRedirect = route.steps && JSON.stringify(route.steps).includes('"client:redirect"');
 
   if (!route.update && !hasRedirect) {
     addIssue('error', category, `Action route is missing 'update' property and does not perform a 'client:redirect'. You must specify which component to re-render.`);
@@ -107,7 +112,7 @@ function checkSteps(steps, category, availableReads, appPath) {
     steps.forEach(step => {
         if (!step) return;
         if(step.run) {
-             checkFileExists(path.join(appPath, 'app', step.run + '.js'), category, `run script '${step.run}'`);
+             checkFileExists(path.join(appPath, 'app', 'actions', step.run + '.js'), category, `run script '${step.run}'`);
         }
         if(step.then) checkSteps(step.then, category, availableReads, appPath);
         if(step.else) checkSteps(step.else, category, availableReads, appPath);
@@ -126,7 +131,6 @@ function checkSteps(steps, category, availableReads, appPath) {
 function checkExpression(expression, category, availableReads) {
     const varRegex = /(?<!['"])\b[a-zA-Z_][\w.]*\b(?!['"])/g;
     const potentialVars = String(expression).match(varRegex) || [];
-    // --- ИЗМЕНЕНИЕ: Добавляем bcrypt ---
     const allowedGlobals = ['true', 'false', 'null', 'undefined', 'context', 'body', 'user', 'require', 'zod', 'Math', 'Number', 'String', 'Object', 'Array', 'Date', 'JSON', 'bcrypt'];
 
     potentialVars.forEach(v => {

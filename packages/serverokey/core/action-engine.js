@@ -57,11 +57,12 @@ function httpGet(url) {
 
 
 class ActionEngine {
-    constructor(context, appPath, assetLoader) {
+    constructor(context, appPath, assetLoader, requestHandler) {
         this.context = JSON.parse(JSON.stringify(context));
         this.context.zod = z;
         this.appPath = appPath;
         this.assetLoader = assetLoader;
+        this.requestHandler = requestHandler;
         this.context._internal = {}; 
     }
 
@@ -90,7 +91,7 @@ class ActionEngine {
                 const itemName = step.as || 'item';
                 if (Array.isArray(list)) {
                     for (const item of list) {
-                        const loopEngine = new ActionEngine({ ...this.context, [itemName]: item }, this.appPath, this.assetLoader);
+                        const loopEngine = new ActionEngine({ ...this.context, [itemName]: item }, this.appPath, this.assetLoader, this.requestHandler);
                         await loopEngine.run(step.steps);
                         Object.assign(this.context, loopEngine.context);
                         Object.assign(item, loopEngine.context[itemName]);
@@ -114,14 +115,37 @@ class ActionEngine {
                 this.context._internal.interrupt = true;
             } 
             else if (step.run) {
-                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
-                // Мы не должны "выполнять" имя файла. Мы должны просто получить его как строку.
                 const handlerName = step.run;
                 const handler = this.assetLoader.getAction(handlerName);
                 if (handler) {
                     await handler(this.context, this.context.body);
                 } else {
                     throw new Error(`[ActionEngine] Handler '${handlerName}' not found for 'run' step.`);
+                }
+            }
+            else if (step['action:run']) {
+                const config = step['action:run'];
+                const targetActionName = config.name;
+                const targetActionRoute = this.requestHandler.findRoute(targetActionName);
+
+                if (!targetActionRoute) {
+                    throw new Error(`[ActionEngine] Action '${targetActionName}' not found for 'action:run' step.`);
+                }
+                
+                const withData = config.with ? evaluate(config.with, this.context, this.appPath) : {};
+
+                const subContext = {
+                    user: this.context.user,
+                    body: this.context.body,
+                    data: { ...this.context.data, ...withData }
+                };
+                
+                const resultContext = await this.requestHandler.runAction(targetActionName, subContext, null);
+
+                if(config.saveTo) {
+                    this._setValue(config.saveTo, resultContext);
+                } else {
+                    Object.assign(this.context.data, resultContext.data);
                 }
             }
             else {

@@ -1,5 +1,10 @@
 <!-- app/components/receipt.html -->
-<div>
+<div 
+  atom-socket="receipt-updates"
+  atom-on-event="receipt-changed"
+  atom-action="POST /action/soft-refresh-receipt"
+  atom-target="#receipt-container"
+>
     <h3>Чек</h3>
     <p atom-if="data.receipt.statusMessage" style="color: green; font-style: italic;">{{data.receipt.statusMessage}}</p>
 

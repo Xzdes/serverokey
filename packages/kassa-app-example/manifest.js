@@ -1,11 +1,18 @@
 // packages/kassa-app-example/manifest.js
 
-const recalculateReceiptSteps = require('./app/actions/recalculateReceipt.js');
-
 module.exports = {
   globals: {
     appName: "Атомарная Касса",
     appVersion: "1.0.0",
+  },
+  sockets: {
+    "receipt-updates": {
+      "watch": "receipt",
+      "emit": {
+        "event": "receipt-changed",
+        "payload": "receipt"
+      }
+    }
   },
   auth: {
     userConnector: 'user', 
@@ -22,11 +29,6 @@ module.exports = {
         items: [], itemCount: 0, total: 0, discountPercent: 10,
         discount: 0, finalTotal: 0, statusMessage: '', bonusApplied: false
       },
-      computed: [
-        { "target": "total", "format": "toFixed(2)" },
-        { "target": "discount", "format": "toFixed(2)" },
-        { "target": "finalTotal", "format": "toFixed(2)" }
-      ]
     },
     positions: { 
       type: 'wise-json',
@@ -45,6 +47,16 @@ module.exports = {
     positionsList: { template: 'positionsList.html', style: 'positionsList.css' }
   },
   routes: {
+    "recalculateReceiptLogic": {
+        type: 'action',
+        internal: true,
+        steps: [
+            { "set": "data.receipt.total", "to": "data.receipt.items.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0)" },
+            { "set": "data.receipt.itemCount", "to": "data.receipt.items.reduce((sum, item) => sum + item.quantity, 0)" },
+            { "set": "data.receipt.discount", "to": "Math.round((data.receipt.total * (data.receipt.discountPercent / 100)) * 100) / 100" },
+            { "set": "data.receipt.finalTotal", "to": "Math.round((data.receipt.total - data.receipt.discount) * 100) / 100" }
+        ]
+    },
     'GET /': {
       type: 'view', layout: 'mainLayout', reads: ['user', 'receipt', 'viewState', 'positions'],
       inject: { 'receipt': 'receipt', 'positionsList': 'positionsList' }, auth: { required: true, failureRedirect: '/login' }
@@ -99,7 +111,6 @@ module.exports = {
       reads: ['user'],
       auth: { required: true }
     },
-
     'POST /action/addItem': {
       type: 'action',
       steps: [
@@ -114,7 +125,7 @@ module.exports = {
           ]
         },
         { "set": "data.receipt.statusMessage", "to": "''" },
-        ...recalculateReceiptSteps
+        { "action:run": { "name": "recalculateReceiptLogic" } }
       ],
       reads: ['positions', 'receipt', 'user'],
       writes: ['receipt'],
@@ -127,7 +138,7 @@ module.exports = {
         { "set": "data.receipt.discountPercent", "to": "10" },
         { "set": "data.receipt.statusMessage", "to": "'Чек очищен. Скидка сброшена.'" },
         { "set": "data.receipt.bonusApplied", "to": "false" },
-        ...recalculateReceiptSteps
+        { "action:run": { "name": "recalculateReceiptLogic" } }
       ],
       reads: ['receipt', 'user'],
       writes: ['receipt'],
@@ -148,7 +159,7 @@ module.exports = {
           ]
         },
         { "set": "data.receipt.statusMessage", "to": "''" },
-        ...recalculateReceiptSteps
+        { "action:run": { "name": "recalculateReceiptLogic" } }
       ],
       reads: ['receipt', 'user'],
       writes: ['receipt'],
@@ -156,7 +167,6 @@ module.exports = {
     },
     'POST /action/filterPositions': {
       type: 'action',
-      // --- ИЗМЕНЕНИЕ: Указываем только имя файла ---
       steps: [{ "run": "filterPositions" }],
       reads: ['positions', 'viewState', 'user'],
       writes: ['viewState'],
@@ -179,7 +189,7 @@ module.exports = {
             { "set": "data.receipt.statusMessage", "to": "'Купон BIGSALE50 применен!'" }
           ]
         },
-        ...recalculateReceiptSteps
+        { "action:run": { "name": "recalculateReceiptLogic" } }
       ],
       reads: ['receipt', 'user'],
       writes: ['receipt'],
@@ -202,7 +212,7 @@ module.exports = {
             }
           ]
         },
-        ...recalculateReceiptSteps,
+        { "action:run": { "name": "recalculateReceiptLogic" } },
         { "http:get": {
             "url": "'http://numbersapi.com/' + data.receipt.itemCount + '?json'", 
             "saveTo": "context.fact"
@@ -217,6 +227,12 @@ module.exports = {
       reads: ['receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
+    },
+    "POST /action/soft-refresh-receipt": {
+        type: "action",
+        steps: [],
+        reads: ["receipt", "user"],
+        update: "receipt"
     }
   }
 };

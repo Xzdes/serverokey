@@ -55,7 +55,7 @@ async function handleAction(event) {
     if (event.type === 'submit' && !element && form) {
         element = form;
     }
-
+    
     if (!element || !element.hasAttribute('atom-action')) {
        if (event.type === 'submit' && form && form.getAttribute('action') && !form.hasAttribute('atom-action')) {
             return;
@@ -79,8 +79,7 @@ async function handleAction(event) {
     }
 
     const [method, url] = action.split(' ');
-
-    // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    
     const fetchOptions = {
         method: method,
         headers: { 'Content-Type': 'application/json' },
@@ -89,7 +88,6 @@ async function handleAction(event) {
     if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
         fetchOptions.body = getActionBody(event.target);
     }
-    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     try {
         if (isDebugMode) {
@@ -145,11 +143,63 @@ async function handleAction(event) {
     }
 }
 
+function initializeWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log('[Engine] WebSocket connection established.');
+        document.querySelectorAll('[atom-socket]').forEach(element => {
+            const channelName = element.getAttribute('atom-socket');
+            if (channelName) {
+                ws.send(JSON.stringify({ type: 'subscribe', channel: channelName }));
+            }
+        });
+    };
+
+    ws.onmessage = (message) => {
+        try {
+            const data = JSON.parse(message.data);
+            if (isDebugMode) {
+                console.groupCollapsed(`[DEBUG] WebSocket Event Received: ${data.event}`);
+                console.log('Payload:', data.payload);
+                console.groupEnd();
+            }
+
+            document.querySelectorAll(`[atom-on-event="${data.event}"]`).forEach(element => {
+                const action = element.getAttribute('atom-action');
+                if (action) {
+                    const fakeEvent = new Event('click', { bubbles: true, cancelable: true });
+                    Object.defineProperty(fakeEvent, 'target', { writable: false, value: element });
+                    handleAction(fakeEvent);
+                }
+            });
+        } catch (e) {
+            console.error('[Engine] Failed to handle WebSocket message:', e);
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('[Engine] WebSocket connection closed. Reconnecting in 3 seconds...');
+        setTimeout(initializeWebSocket, 3000);
+    };
+
+    ws.onerror = (error) => {
+        console.error('[Engine] WebSocket error:', error);
+        ws.close();
+    };
+}
+
+
 document.addEventListener('DOMContentLoaded', () => {
     const supportedEvents = ['click', 'input', 'change', 'submit'];
     supportedEvents.forEach(eventType => {
         document.body.addEventListener(eventType, handleAction, true);
     });
+
+    initializeWebSocket();
 
     if (isDebugMode) {
         console.log('✔️ [Engine] Client initialized in Debug Mode.');

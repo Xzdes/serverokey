@@ -7,13 +7,13 @@ const { ConnectorManager } = require('./core/connector-manager.js');
 const { AssetLoader } = require('./core/asset-loader.js');
 const { Renderer } = require('./core/renderer.js');
 const { RequestHandler } = require('./core/request-handler.js');
+const { SocketEngine } = require('./core/socket-engine.js');
 
-function createServer(appPath, options = {}) { // --- ИЗМЕНЕНИЕ: Принимаем options ---
+function createServer(appPath, options = {}) {
   if (!appPath) {
     throw new Error('[Serverokey] Application path must be provided.');
   }
 
-  // --- НОВЫЙ БЛОК: Извлекаем опцию debug ---
   const { debug = false } = options;
 
   const manifest = loadManifest(appPath);
@@ -22,12 +22,15 @@ function createServer(appPath, options = {}) { // --- ИЗМЕНЕНИЕ: При
   
   const connectorManager = new ConnectorManager(appPath, manifest);
   const assetLoader = new AssetLoader(appPath, manifest);
-  // --- ИЗМЕНЕНИЕ: Передаем debug в конструкторы ---
   const renderer = new Renderer(assetLoader, manifest, connectorManager, modulePath, { debug });
   const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, renderer, modulePath, { debug });
 
   const server = http.createServer(requestHandler.handle.bind(requestHandler));
   
+  const socketEngine = new SocketEngine(server, manifest, connectorManager);
+  
+  requestHandler.setSocketEngine(socketEngine);
+
   console.log('[Serverokey] Engine initialized.');
   return server;
 }
