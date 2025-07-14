@@ -8,7 +8,7 @@
       type="text" 
       name="query" 
       placeholder="Найти товар..." 
-      value="{{viewState.query}}"
+      value="{{data.viewState.query}}"
       atom-action="POST /action/filterPositions"
       atom-target="#positionsList-container"
       atom-event="input"
@@ -17,8 +17,8 @@
 
   <form>
     <ul>
-      <!-- Правильный синтаксис Mustache для итерации по массиву -->
-      {{#viewState.filtered}}
+      <!-- ИЗМЕНЕНИЕ: Добавляем data. к viewState.filtered -->
+      {{#data.viewState.filtered}}
       <li>
         <span>{{name}} ({{price}} руб.)</span>
         <button
@@ -30,7 +30,7 @@
           Добавить
         </button>
       </li>
-      {{/viewState.filtered}}
+      {{/data.viewState.filtered}}
     </ul>
   </form>
 </div>

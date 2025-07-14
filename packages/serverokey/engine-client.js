@@ -46,29 +46,29 @@ function executeScripts(scripts) {
 }
 
 async function handleAction(event) {
-    // --- ИЗМЕНЕНИЕ: Проверяем, не нужно ли игнорировать эту форму ---
     const form = event.target.closest('form');
     if (form && form.hasAttribute('data-native-submit')) {
-        // Если у формы есть этот атрибут, мы ничего не делаем,
-        // позволяя браузеру выполнить стандартную отправку.
         return;
     }
     
     const element = event.target.closest('[atom-action]');
     if (!element) return;
 
-    const requiredEventType = element.getAttribute('atom-event') || 'click';
-    // Для сабмита формы, триггером является сама форма, а не кнопка
-    const triggerElement = event.type === 'submit' ? event.target : element;
+    const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
     
-    if (event.type !== requiredEventType && triggerElement.tagName !== 'FORM') return;
+    if (event.type === 'submit') {
+         // for forms, the event target is the form itself, which has the action
+    } else if (event.type !== requiredEventType) {
+        return;
+    }
 
     event.preventDefault();
 
     const action = element.getAttribute('atom-action');
     const targetSelector = element.getAttribute('atom-target');
-    if (!action || !targetSelector) {
-        console.error('[Engine] Missing atom-action or atom-target attribute.', element);
+    
+    if (!action) {
+        console.error('[Engine] Missing atom-action attribute.', element);
         return;
     }
 
@@ -96,32 +96,41 @@ async function handleAction(event) {
         if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 
         const payload = await response.json();
-        const targetElement = document.querySelector(targetSelector);
-        if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);
 
         if (isDebugMode) {
             console.groupCollapsed(`[DEBUG] Received Payload for: ${action}`);
-            console.log('Target Element:', targetElement);
             console.log('Payload:', payload);
             console.groupEnd();
         }
 
-        const activeElement = document.activeElement;
-        const shouldPreserveFocus = activeElement && targetElement.contains(activeElement) && activeElement.id;
-        const activeElementId = shouldPreserveFocus ? activeElement.id : null;
-        const selectionStart = activeElement?.selectionStart ?? null;
-        const selectionEnd = activeElement?.selectionEnd ?? null;
+        // 1. Проверяем, не нужно ли сделать редирект
+        if (payload.redirectUrl) {
+            window.location.href = payload.redirectUrl;
+            return; // Прерываем выполнение
+        }
+        
+        // 2. Если редиректа нет, обновляем компонент
+        if (payload.html && targetSelector) {
+            const targetElement = document.querySelector(targetSelector);
+            if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);
 
-        updateStyles(payload.componentName, payload.styles);
-        targetElement.innerHTML = payload.html;
-        executeScripts(payload.scripts);
+            const activeElement = document.activeElement;
+            const shouldPreserveFocus = activeElement && targetElement.contains(activeElement) && activeElement.id;
+            const activeElementId = shouldPreserveFocus ? activeElement.id : null;
+            const selectionStart = activeElement?.selectionStart ?? null;
+            const selectionEnd = activeElement?.selectionEnd ?? null;
 
-        if (activeElementId) {
-            const newActiveElement = document.getElementById(activeElementId);
-            if (newActiveElement) {
-                newActiveElement.focus();
-                if (selectionStart !== null && typeof newActiveElement.setSelectionRange === 'function') {
-                    newActiveElement.setSelectionRange(selectionStart, selectionEnd);
+            if (payload.styles) updateStyles(payload.componentName, payload.styles);
+            targetElement.innerHTML = payload.html;
+            if (payload.scripts) executeScripts(payload.scripts);
+
+            if (activeElementId) {
+                const newActiveElement = document.getElementById(activeElementId);
+                if (newActiveElement) {
+                    newActiveElement.focus();
+                    if (selectionStart !== null && typeof newActiveElement.setSelectionRange === 'function') {
+                        newActiveElement.setSelectionRange(selectionStart, selectionEnd);
+                    }
                 }
             }
         }

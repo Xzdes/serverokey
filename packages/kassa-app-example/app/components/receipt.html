@@ -1,11 +1,10 @@
 <!-- app/components/receipt.html -->
 <div>
-    <!-- ИЗМЕНЕНИЕ: Убираем имя пользователя из заголовка -->
     <h3>Чек</h3>
-    <p atom-if="receipt.statusMessage" style="color: green; font-style: italic;">{{receipt.statusMessage}}</p>
+    <p atom-if="data.receipt.statusMessage" style="color: green; font-style: italic;">{{data.receipt.statusMessage}}</p>
 
-    <ul atom-if="receipt.items.length > 0">
-        {{#receipt.items}}
+    <ul atom-if="data.receipt.items.length > 0">
+        {{#data.receipt.items}}
         <li>
             <span>{{name}} - {{price}} руб. (x{{quantity}})</span>
             <button 
@@ -18,10 +17,10 @@
               ×
             </button>
         </li>
-        {{/receipt.items}}
+        {{/data.receipt.items}}
     </ul>
 
-    <div class="empty-state" atom-if="!receipt.items.length">
+    <div class="empty-state" atom-if="!data.receipt.items.length">
         <p>Чек пуст</p>
         <span>Добавьте товары из списка справа.</span>
     </div>
@@ -29,10 +28,10 @@
     <hr>
     
     <div class="totals">
-      <p><span>Позиций:</span> <span>{{receipt.itemCount}} шт.</span></p>
-      <p><span>Сумма:</span> <span>{{receipt.total}} руб.</span></p>
-      <p class="discount"><span>Скидка ({{receipt.discountPercent}}%):</span> <span>-{{receipt.discount}} руб.</span></p>
-      <p class="final-total"><b>Итого:</b> <b>{{receipt.finalTotal}} руб.</b></p>
+      <p><span>Позиций:</span> <span>{{data.receipt.itemCount}} шт.</span></p>
+      <p><span>Сумма:</span> <span>{{data.receipt.total}} руб.</span></p>
+      <p class="discount"><span>Скидка ({{data.receipt.discountPercent}}%):</span> <span>-{{data.receipt.discount}} руб.</span></p>
+      <p class="final-total"><b>Итого:</b> <b>{{data.receipt.finalTotal}} руб.</b></p>
     </div>
     
     <button 

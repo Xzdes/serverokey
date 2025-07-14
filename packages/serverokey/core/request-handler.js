@@ -2,9 +2,8 @@
 const { URL, URLSearchParams } = require('url');
 const fs = require('fs');
 const path = require('path');
-const { OperationHandler } = require('./operation-handler.js');
 const { ActionEngine } = require('./action-engine.js');
-const { AuthEngine } = require('./auth-engine.js'); 
+const { AuthEngine } = require('./auth-engine.js');
 const cookie = require('cookie');
 
 class RequestHandler {
@@ -16,7 +15,7 @@ class RequestHandler {
         this.modulePath = modulePath;
         this.debug = options.debug || false;
         
-        this.authEngine = null; 
+        this.authEngine = null;
         this.userConnector = null;
         this.authInitPromise = this._initializeAuthEngine();
     }
@@ -26,11 +25,8 @@ class RequestHandler {
             try {
                 this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
-                
                 await Promise.all([this.userConnector.initPromise, sessionConnector.initPromise]);
-                
                 this.authEngine = new AuthEngine(this.manifest, this.userConnector.collection, sessionConnector.collection);
-                
             } catch (e) {
                 console.error("CRITICAL: Failed to initialize AuthEngine. Auth will be disabled.", e);
                 this.authEngine = null;
@@ -53,7 +49,7 @@ class RequestHandler {
         }
 
         if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js'); 
+            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
             res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
             return;
         }
@@ -64,11 +60,9 @@ class RequestHandler {
             return;
         }
 
-        if (this.authEngine && routeConfig.auth?.required) {
-            if (!user) {
-                this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
-                return;
-            }
+        if (routeConfig.auth?.required && !user) {
+            this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+            return;
         }
         
         try {
@@ -108,73 +102,71 @@ class RequestHandler {
             }
 
             if (routeConfig.type === 'view') {
-                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-                const readKeys = new Set(routeConfig.reads || []);
-                // Мы уже получили объект user. Не нужно читать весь коннектор 'user' снова.
-                readKeys.delete('user'); 
-                const dataContext = await this.connectorManager.getContext(Array.from(readKeys));
-                
-                // Добавляем наш правильный ОБЪЕКТ user в контекст.
-                if (user) {
-                    dataContext.user = user;
-                }
-                // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
+                const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
+                const dataContext = {
+                    data: dataFromReads, // Все данные из reads теперь в data
+                    user: user || null,
+                };
                 const html = await this.renderer.renderView(routeConfig, dataContext, url);
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
             }
 
             if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
-                // Аналогичное исправление для экшенов
-                const readKeys = new Set(routeConfig.reads || []);
-                readKeys.delete('user');
-                const context = await this.connectorManager.getContext(Array.from(readKeys));
-
-                if (user) {
-                    context.user = user;
-                }
+                const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
                 
-                context.body = body;
+                const context = {
+                    data: dataFromReads,
+                    user: user || null,
+                    body: body
+                };
 
-                let finalContext = context;
-
-                if (routeConfig.steps) {
-                    const engine = new ActionEngine(context);
-                    await engine.run(routeConfig.steps);
-                    finalContext = engine.context;
-                } else if (routeConfig.handler) {
-                    const handler = this.assetLoader.getAction(routeConfig.handler);
-                    handler(finalContext, body);
-                } else {
-                    throw new Error(`Action route ${routeKey} has no 'steps' or 'handler' defined.`);
-                }
+                const engine = new ActionEngine(context);
+                await engine.run(routeConfig.steps || (routeConfig.handler ? [ { handler: routeConfig.handler } ] : []));
                 
-                delete finalContext.body;
-                delete finalContext.zod; 
-
-                for (const key of routeConfig.writes) {
-                    if (key === 'user') continue; 
-                    const connector = this.connectorManager.getConnector(key);
-                    await connector.write(finalContext[key]);
+                // Если был использован handler, он мог изменить контекст напрямую
+                if (routeConfig.handler) {
+                    const handlerFunc = this.assetLoader.getAction(routeConfig.handler);
+                    handlerFunc(engine.context, body);
                 }
 
-                const globalContext = await this.renderer._getGlobalContext(url);
+                const finalContext = engine.context;
+
+                const internalActions = finalContext._internal || {};
                 
-                if (user) {
-                    finalContext.user = user;
+                if (internalActions.loginUser && this.authEngine) {
+                    const sessionId = await this.authEngine.createSession(internalActions.loginUser);
+                    res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
+                        httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
+                    }));
+                }
+                
+                if (internalActions.logout && this.authEngine) {
+                    await this.authEngine.clearSession(req, res);
                 }
 
-                const renderDataContext = { ...finalContext };
-                
-                const componentName = routeConfig.update;
-                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, renderDataContext, globalContext);
-                
-                const responsePayload = { html, styles, scripts, componentName };
+                for (const key of (routeConfig.writes || [])) {
+                    if (finalContext.data[key]) {
+                        await this.connectorManager.getConnector(key).write(finalContext.data[key]);
+                    }
+                }
 
-                if (this.debug) {
-                    console.log(`\n🐞 [DEBUG] Action '${routeKey}' completed. Sending payload to update '${componentName}':`);
-                    console.dir(responsePayload, { depth: 2 });
+                const responsePayload = {};
+                
+                if (internalActions.redirectUrl) {
+                    responsePayload.redirectUrl = internalActions.redirectUrl;
+                }
+                
+                if (routeConfig.update && !internalActions.redirectUrl) {
+                     // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+                     // Формируем ТОЧНО ТАКОЙ ЖЕ контекст, как и для 'view'
+                     const componentRenderContext = {
+                        data: finalContext.data,
+                        user: finalContext.user,
+                        // `url` и `globals` будут добавлены внутри renderComponent
+                     };
+                     const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, url);
+                     Object.assign(responsePayload, componentUpdate);
                 }
                 
                 res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));

@@ -57,93 +57,84 @@ module.exports = {
     'POST /action/addItem': {
       type: 'action',
       steps: [
-        // Здесь тоже можно добавить валидацию для body.id по аналогии с removeItem
-        { "set": "context.productToAdd", "to": "positions.items.find(p => p.id == body.id)" },
-        { "set": "context.itemInReceipt", "to": "receipt.items.find(i => i.id == body.id)" },
+        { "set": "context.productToAdd", "to": "data.positions.items.find(p => p.id == body.id)" },
+        { "set": "context.itemInReceipt", "to": "data.receipt.items.find(i => i.id == body.id)" },
         {
           "if": "context.itemInReceipt",
           "then": [ { "set": "context.itemInReceipt.quantity", "to": "context.itemInReceipt.quantity + 1" } ],
           "else": [
             { "set": "context.productToAdd.quantity", "to": "1" },
-            { "set": "receipt.items", "to": "receipt.items.concat([context.productToAdd])" }
+            { "set": "data.receipt.items", "to": "data.receipt.items.concat([context.productToAdd])" }
           ]
         },
-        { "set": "receipt.statusMessage", "to": "''" },
+        { "set": "data.receipt.statusMessage", "to": "''" },
         ...recalculateReceiptSteps
       ],
-      reads: ['positions', 'receipt', 'user'],
+      reads: ['positions', 'receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
     'POST /action/clearReceipt': {
       type: 'action',
       steps: [
-        { "set": "receipt.items", "to": "[]" },
-        { "set": "receipt.discountPercent", "to": "10" },
-        { "set": "receipt.statusMessage", "to": "'Чек очищен. Скидка сброшена.'" },
-        { "set": "receipt.bonusApplied", "to": "false" },
+        { "set": "data.receipt.items", "to": "[]" },
+        { "set": "data.receipt.discountPercent", "to": "10" },
+        { "set": "data.receipt.statusMessage", "to": "'Чек очищен. Скидка сброшена.'" },
+        { "set": "data.receipt.bonusApplied", "to": "false" },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt', 'user'],
+      reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
     'POST /action/removeItem': {
       type: 'action',
       steps: [
-        // --- НОВЫЙ ШАГ: ВАЛИДАЦИЯ И ПРЕОБРАЗОВАНИЕ ВХОДНЫХ ДАННЫХ ---
-        // 1. Проверяем, что body.itemId - это строка из цифр.
-        // 2. Если да, преобразуем ее в число (transform(Number)).
-        // 3. Результат сохраняем в context.validatedItemId.
-        // 4. Если проверка провалится, .parse() выбросит ошибку, и ActionEngine остановит выполнение.
         { "set": "context.validatedItemId", "to": "zod.string().regex(/^\\d+$/).transform(Number).parse(body.itemId)" },
-        
-        // --- ИЗМЕНЕНИЕ: Используем очищенные данные ---
-        { "set": "context.itemInReceipt", "to": "receipt.items.find(i => i.id === context.validatedItemId)" },
+        { "set": "context.itemInReceipt", "to": "data.receipt.items.find(i => i.id === context.validatedItemId)" },
         {
           "if": "context.itemInReceipt",
           "then": [
             { "if": "context.itemInReceipt.quantity > 1",
               "then": [ { "set": "context.itemInReceipt.quantity", "to": "context.itemInReceipt.quantity - 1" } ],
-              "else": [ { "set": "receipt.items", "to": "receipt.items.filter(i => i.id !== context.validatedItemId)" } ]
+              "else": [ { "set": "data.receipt.items", "to": "data.receipt.items.filter(i => i.id !== context.validatedItemId)" } ]
             }
           ]
         },
-        { "set": "receipt.statusMessage", "to": "''" },
+        { "set": "data.receipt.statusMessage", "to": "''" },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt', 'user'],
+      reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
     'POST /action/filterPositions': {
       type: 'action',
       handler: 'filterPositions',
-      reads: ['positions', 'viewState', 'user'],
+      reads: ['positions', 'viewState'],
       writes: ['viewState'],
       update: 'positionsList'
     },
     'POST /action/applyCoupon': {
       type: 'action',
       steps: [
-        // Здесь тоже можно добавить валидацию для body.coupon_code
-        { "set": "receipt.statusMessage", "to": "'Неверный купон! Скидка сброшена.'" },
-        { "set": "receipt.discountPercent", "to": 0 },
+        { "set": "data.receipt.statusMessage", "to": "'Неверный купон! Скидка сброшена.'" },
+        { "set": "data.receipt.discountPercent", "to": 0 },
         { "if": "body.coupon_code === 'SALE15'",
           "then": [
-            { "set": "receipt.discountPercent", "to": 15 },
-            { "set": "receipt.statusMessage", "to": "'Купон SALE15 применен!'" }
+            { "set": "data.receipt.discountPercent", "to": 15 },
+            { "set": "data.receipt.statusMessage", "to": "'Купон SALE15 применен!'" }
           ]
         },
         { "if": "body.coupon_code === 'BIGSALE50'",
           "then": [
-            { "set": "receipt.discountPercent", "to": 50 },
-            { "set": "receipt.statusMessage", "to": "'Купон BIGSALE50 применен!'" }
+            { "set": "data.receipt.discountPercent", "to": 50 },
+            { "set": "data.receipt.statusMessage", "to": "'Купон BIGSALE50 применен!'" }
           ]
         },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt', 'user'],
+      reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     },
@@ -151,32 +142,32 @@ module.exports = {
       type: 'action',
       steps: [
         {
-          "if": "receipt.total > 300 && !receipt.bonusApplied", 
+          "if": "data.receipt.total > 300 && !data.receipt.bonusApplied", 
           "then": [
-            { "set": "receipt.discountPercent", "to": "receipt.discountPercent + 5" },
-            { "set": "receipt.bonusApplied", "to": "true" },
-            { "set": "receipt.statusMessage", "to": "'Применен бонус +5% за большой заказ!'" }
+            { "set": "data.receipt.discountPercent", "to": "data.receipt.discountPercent + 5" },
+            { "set": "data.receipt.bonusApplied", "to": "true" },
+            { "set": "data.receipt.statusMessage", "to": "'Применен бонус +5% за большой заказ!'" }
           ],
           "else": [
-            { "if": "receipt.bonusApplied",
-              "then": [{ "set": "receipt.statusMessage", "to": "'Бонус уже был применен.'" }],
-              "else": [{ "set": "receipt.statusMessage", "to": "'Бонус не применен. Сумма заказа < 300 руб.'" }]
+            { "if": "data.receipt.bonusApplied",
+              "then": [{ "set": "data.receipt.statusMessage", "to": "'Бонус уже был применен.'" }],
+              "else": [{ "set": "data.receipt.statusMessage", "to": "'Бонус не применен. Сумма заказа < 300 руб.'" }]
             }
           ]
         },
         ...recalculateReceiptSteps,
         { "http:get": {
-            "url": "'http://numbersapi.com/' + receipt.itemCount + '?json'", 
+            "url": "'http://numbersapi.com/' + data.receipt.itemCount + '?json'", 
             "saveTo": "context.fact"
           }
         },
         { "if": "context.fact && !context.fact.error",
           "then": [
-            { "set": "receipt.statusMessage", "to": "receipt.statusMessage + ' Факт дня: ' + context.fact.text" }
+            { "set": "data.receipt.statusMessage", "to": "data.receipt.statusMessage + ' Факт дня: ' + context.fact.text" }
           ]
         }
       ],
-      reads: ['receipt', 'user'],
+      reads: ['receipt'],
       writes: ['receipt'],
       update: 'receipt'
     }

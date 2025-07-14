@@ -50,12 +50,13 @@ class Renderer {
                 const func = new Function(...contextKeys, `return ${condition};`);
                 return !!func(...contextValues);
             } catch (e) {
-                console.warn(`[Renderer] Could not evaluate atom-if condition: "${condition}"`, e.message);
+                // В режиме отладки выводим ошибку, чтобы было проще найти проблему
+                if(this.debug) console.warn(`[Renderer] Could not evaluate atom-if condition: "${condition}". Error: ${e.message}`);
                 return false;
             }
         };
 
-        return function(tree) {
+        return (tree) => {
             tree.walk(node => {
                 if (node && node.attrs && node.attrs['atom-if']) {
                     if (evaluateCondition(node.attrs['atom-if'])) {
@@ -158,12 +159,17 @@ class Renderer {
         }
     }
 
-    async renderComponent(componentName, dataContext = {}, globalContext = {}) {
+    async renderComponent(componentName, dataContext = {}, reqUrl = null) {
         const component = this.assetLoader.getComponent(componentName);
         if (!component) throw new Error(`Component "${componentName}" not found.`);
 
+        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        // Получаем глобальный контекст и смешиваем его с переданным
+        const globalContext = await this._getGlobalContext(reqUrl);
+        const renderContext = { ...globalContext, ...dataContext };
+
         const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
-        const renderContext = { ...globalContext, ...dataContext, _internal: { id: componentId } };
+        renderContext._internal = { id: componentId };
         
         const scripts = [];
         
@@ -181,17 +187,14 @@ class Renderer {
 
         let finalHtml = html;
         if (this.debug) {
-            // Преобразуем контекст в JSON безопасным способом, избегая циклических ссылок
             const safeContextJson = JSON.stringify(renderContext, (key, value) => {
-                // Это простая защита от циклических ссылок. Для сложных объектов нужен более умный сериализатор.
-                if (key === '_col') return '[WiseJSON Collection]';
+                if (key === '_col' || value instanceof Promise) return `[Complex Object]`;
                 return value;
             }, 2);
-            
             finalHtml = `<!-- [DEBUG] Rendered component '${componentName}' with context:\n${safeContextJson}\n-->\n${html}`;
         }
 
-        return { html: finalHtml, styles, scripts };
+        return { html: finalHtml, styles, scripts, componentName };
     }
 
     async renderView(routeConfig, dataContext, reqUrl) {
@@ -199,19 +202,17 @@ class Renderer {
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
 
         const globalContext = await this._getGlobalContext(reqUrl);
+        const finalRenderContext = { ...globalContext, ...dataContext };
 
         const allStyleTags = [];
         const allScripts = [];
         const injectedHtml = {};
 
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: СОЗДАЕМ ЕДИНЫЙ КОНТЕКСТ ---
-        const finalRenderContext = { ...globalContext, ...dataContext };
-
         for (const placeholderName in routeConfig.inject) {
             const componentName = routeConfig.inject[placeholderName];
             if (componentName) {
-                // Передаем ЕДИНЫЙ контекст в каждый компонент
-                const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, {});
+                // Передаем ЕДИНЫЙ контекст, а reqUrl больше не нужен, т.к. он уже в globalContext
+                const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, reqUrl);
                 if (styles) {
                     allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
                 }
@@ -223,8 +224,7 @@ class Renderer {
         let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
             return injectedHtml[placeholderName] || `<!-- Placeholder for ${placeholderName} -->`;
         });
-
-        // Рендерим главный шаблон с ТЕМ ЖЕ ЕДИНЫМ КОНТЕКСТОМ
+        
         layoutHtml = Mustache.render(layoutHtml, finalRenderContext);
 
         if (allStyleTags.length > 0) {
@@ -237,12 +237,9 @@ class Renderer {
             : '';
         const clientScriptTag = `<script src="/engine-client.js"></script>`;
         
-        let finalBodyTag = '</body>';
+        let finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
         if (this.debug) {
-            finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
             layoutHtml = layoutHtml.replace('<body', '<body data-debug-mode="true"');
-        } else {
-            finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
         }
         
         layoutHtml = layoutHtml.replace('</body>', finalBodyTag);

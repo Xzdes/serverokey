@@ -1,6 +1,7 @@
 // packages/kassa-app-example/app/actions/filterPositions.js
 module.exports = (context, body) => {
-  const { positions, viewState } = context;
+  // ИЗМЕНЕНИЕ: Достаем коннекторы из объекта data
+  const { positions, viewState } = context.data;
   const query = (body.query || '').toLowerCase().trim();
 
   viewState.query = body.query;
