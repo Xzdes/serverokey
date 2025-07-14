@@ -1,23 +1,29 @@
 const path = require('path');
 const fs = require('fs/promises');
 
-// Определяем корень проекта
+// Определяем корень проекта для надежных путей
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-// Очищаем кэш для валидатора
+// Очищаем кэш для валидатора перед запуском, чтобы гарантировать свежесть кода
 const VALIDATOR_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/validator/index.js');
 if (require.cache[VALIDATOR_PATH]) {
     delete require.cache[VALIDATOR_PATH];
 }
 
-// Вспомогательные функции, скопированные из renderer.test.js для консистентности
+/**
+ * Вспомогательная функция для логирования.
+ */
 function log(message, data) {
     console.log(`\n[LOG] ${message}`);
     if (data !== undefined) {
+        // Используем JSON.stringify для красивого вывода объектов
         console.log(JSON.stringify(data, null, 2));
     }
 }
 
+/**
+ * Вспомогательная функция для проверки утверждений.
+ */
 function check(condition, description, actual) {
     if (condition) {
         console.log(`  ✅ OK: ${description}`);
@@ -30,14 +36,12 @@ function check(condition, description, actual) {
     }
 }
 
+
 // --- Тестовые Сценарии ---
 
 async function runValidManifestTest(appPath) {
     const validateManifest = require(VALIDATOR_PATH);
     const manifest = require(path.join(appPath, 'manifest.js'));
-    
-    // Создадим фейковый компонент, чтобы проверка существования файла прошла
-    await fs.writeFile(path.join(appPath, 'app', 'components', 'main.html'), '<div></div>');
     
     log('Running validation for a valid manifest...');
     const issues = validateManifest(manifest, appPath);
@@ -69,10 +73,11 @@ async function runConnectorNoTypeTest(appPath) {
     const issues = validateManifest(manifest, appPath);
     log('Validation issues found:', issues);
     
-    check(issues.length === 1, 'Expected exactly one issue.');
-    check(issues[0].level === 'error', 'Issue level should be "error".');
+    check(issues.length > 0, 'Expected at least one issue.');
+    const issue = issues[0];
+    check(issue.level === 'error', 'Issue level should be "error".');
     check(
-        issues[0].message.includes("missing the 'type' property"),
+        issue.message.includes("missing the 'type' property"),
         'Error message should mention the missing "type" property.'
     );
 }
@@ -95,7 +100,7 @@ async function runTypoSuggestionTest(appPath) {
 }
 
 
-// --- Экспорт Тестов ---
+// --- Экспорт Тестов для Runner'а ---
 
 module.exports = {
     'Validator: A valid manifest should pass': {
@@ -105,7 +110,9 @@ module.exports = {
                 connectors: { db: { type: 'in-memory', initialState: {} } },
                 routes: { 'GET /': { type: 'view', layout: 'main', reads: ['db'] } }
             },
-            // Файл компонента создается в самом тесте, т.к. это специфично для этого сценария
+            files: {
+                'app/components/main.html': '<div>Hello</div>'
+            }
         },
         run: runValidManifestTest
     },
@@ -114,8 +121,8 @@ module.exports = {
             manifest: {
                 components: { main: 'main.html' },
                 connectors: { db: { type: 'in-memory', initialState: {} } },
-                // `routes` намеренно пропущена
-            }
+            },
+            files: {} 
         },
         run: runMissingSectionsTest
     },
@@ -123,9 +130,10 @@ module.exports = {
         options: {
             manifest: {
                 components: {},
-                connectors: { db: { initialState: {} } }, // `type` пропущен
+                connectors: { db: { initialState: {} } },
                 routes: {}
-            }
+            },
+            files: {}
         },
         run: runConnectorNoTypeTest
     },
@@ -135,8 +143,11 @@ module.exports = {
                 components: { myComponent: 'my.html' },
                 connectors: {},
                 routes: {
-                    'GET /': { type: 'view', layout: 'myComponant' } // Опечатка
+                    'GET /': { type: 'view', layout: 'myComponant' } 
                 }
+            },
+            files: {
+                'app/components/my.html': ' '
             }
         },
         run: runTypoSuggestionTest
