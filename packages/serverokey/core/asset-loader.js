@@ -8,14 +8,13 @@ class AssetLoader {
         this.manifest = manifest;
         this.actions = {};
         this.components = {};
-        this.operations = {}; // --- НОВАЯ СЕКЦИЯ ДЛЯ ОПЕРАЦИЙ ---
+        this.operations = {};
         this.loadAll();
     }
 
     loadAll() {
         console.log('[Engine] Caching assets...');
         
-        // --- КЭШИРУЕМ ОПЕРАЦИИ ---
         const operationsPath = path.join(this.appPath, 'app', 'operations');
         if (fs.existsSync(operationsPath)) {
             fs.readdirSync(operationsPath).forEach(file => {
@@ -28,21 +27,25 @@ class AssetLoader {
             });
         }
         
-        // Кэшируем actions
-        for (const route of Object.values(this.manifest.routes)) {
-            if (route.type === 'action' && route.handler && !this.actions[route.handler]) {
-                const actionPath = path.join(this.appPath, 'app', 'actions', `${route.handler}.js`);
-                try {
-                    this.actions[route.handler] = require(actionPath);
-                } catch(e) {
-                    console.error(`[AssetLoader] CRITICAL: Could not load action file for handler '${route.handler}' from ${actionPath}`);
-                    throw e;
+        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Загружаем все экшены из папки ---
+        const actionsPath = path.join(this.appPath, 'app', 'actions');
+        if (fs.existsSync(actionsPath)) {
+            fs.readdirSync(actionsPath).forEach(file => {
+                if (file.endsWith('.js')) {
+                    const actionName = path.basename(file, '.js');
+                    const actionPath = path.join(actionsPath, file);
+                    try {
+                        this.actions[actionName] = require(actionPath);
+                        console.log(`[AssetLoader] Cached action: '${actionName}'`);
+                    } catch (e) {
+                        console.error(`[AssetLoader] CRITICAL: Could not load action file '${actionName}' from ${actionPath}`);
+                        throw e;
+                    }
                 }
-            }
+            });
         }
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-        // Кэшируем components
-        // ... (этот блок без изменений)
         for (const componentName in this.manifest.components) {
             const config = this.manifest.components[componentName];
             const componentData = { template: null, style: null };
@@ -71,7 +74,7 @@ class AssetLoader {
 
     getAction(name) { return this.actions[name]; }
     getComponent(name) { return this.components[name]; }
-    getOperation(name) { return this.operations[name]; } // --- НОВЫЙ GETTER ---
+    getOperation(name) { return this.operations[name]; }
 }
 
 module.exports = { AssetLoader };

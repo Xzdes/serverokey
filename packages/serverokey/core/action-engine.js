@@ -2,13 +2,24 @@
 const http = require('http');
 const https = require('https');
 const { z } = require('zod');
+const path = require('path');
 
-function evaluate(expression, context) {
+function evaluate(expression, context, appPath) {
     if (typeof expression !== 'string') return expression;
     const contextKeys = Object.keys(context);
     const contextValues = Object.values(context);
-    const func = new Function(...contextKeys, `return ${expression};`);
-    return func(...contextValues);
+    const func = new Function(...contextKeys, 'require', `return ${expression};`);
+    return func(...contextValues, (module) => {
+        try {
+            return require(module);
+        } catch (e) {
+            try {
+                return require(path.resolve(appPath, module));
+            } catch (e2) {
+                return require(path.resolve(appPath, 'app', module));
+            }
+        }
+    });
 }
 
 function httpGet(url) {
@@ -46,17 +57,17 @@ function httpGet(url) {
 
 
 class ActionEngine {
-    constructor(context) {
+    constructor(context, appPath, assetLoader) {
         this.context = JSON.parse(JSON.stringify(context));
         this.context.zod = z;
-        // +++ СЛУЖЕБНЫЕ ПОЛЯ ДЛЯ УПРАВЛЕНИЯ ОТВЕТОМ +++
+        this.appPath = appPath;
+        this.assetLoader = assetLoader;
         this.context._internal = {}; 
     }
 
     async run(steps) {
         if (!Array.isArray(steps)) return;
         for (const step of steps) {
-            // Если был запрос на прерывание (например, после редиректа), останавливаем выполнение
             if (this.context._internal.interrupt) break;
             await this.executeStep(step);
         }
@@ -65,22 +76,21 @@ class ActionEngine {
     async executeStep(step) {
         try {
             if (step.set) {
-                const value = evaluate(step.to, this.context);
+                const value = evaluate(step.to, this.context, this.appPath);
                 this._setValue(step.set, value);
             } else if (step.if) {
-                const condition = evaluate(step.if, this.context);
+                const condition = evaluate(step.if, this.context, this.appPath);
                 if (condition && step.then) {
                     await this.run(step.then);
                 } else if (!condition && step.else) {
                     await this.run(step.else);
                 }
             } else if (step.forEach) {
-                const list = evaluate(step.forEach, this.context);
+                const list = evaluate(step.forEach, this.context, this.appPath);
                 const itemName = step.as || 'item';
                 if (Array.isArray(list)) {
                     for (const item of list) {
-                        const loopContext = { ...this.context, [itemName]: item };
-                        const loopEngine = new ActionEngine(loopContext);
+                        const loopEngine = new ActionEngine({ ...this.context, [itemName]: item }, this.appPath, this.assetLoader);
                         await loopEngine.run(step.steps);
                         Object.assign(this.context, loopEngine.context);
                         Object.assign(item, loopEngine.context[itemName]);
@@ -88,29 +98,33 @@ class ActionEngine {
                 }
             } else if (step['http:get']) {
                 const config = step['http:get'];
-                const url = evaluate(config.url, this.context);
-                console.log(`[ActionEngine] Performing HTTP GET: ${url}`);
+                const url = evaluate(config.url, this.context, this.appPath);
                 try {
                     const data = await httpGet(url);
                     this._setValue(config.saveTo, data);
                 } catch (error) {
-                    console.error(`[ActionEngine] HTTP GET request to ${url} failed:`, error);
                     this._setValue(config.saveTo, { error: error.message });
                 }
-            // +++ НОВЫЕ СЛУЖЕБНЫЕ ШАГИ +++
             } else if (step['auth:login']) {
-                const userToLogin = evaluate(step['auth:login'], this.context);
-                if (userToLogin && typeof userToLogin === 'object') {
-                    this.context._internal.loginUser = userToLogin;
-                } else {
-                     console.warn('[ActionEngine] auth:login step requires a valid user object.');
-                }
+                this.context._internal.loginUser = evaluate(step['auth:login'], this.context, this.appPath);
             } else if (step['auth:logout']) {
                 this.context._internal.logout = true;
             } else if (step['client:redirect']) {
-                this.context._internal.redirectUrl = evaluate(step['client:redirect'], this.context);
-                this.context._internal.interrupt = true; // Останавливаем дальнейшее выполнение шагов
-            } else {
+                this.context._internal.redirectUrl = evaluate(step['client:redirect'], this.context, this.appPath);
+                this.context._internal.interrupt = true;
+            } 
+            else if (step.run) {
+                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
+                // Мы не должны "выполнять" имя файла. Мы должны просто получить его как строку.
+                const handlerName = step.run;
+                const handler = this.assetLoader.getAction(handlerName);
+                if (handler) {
+                    await handler(this.context, this.context.body);
+                } else {
+                    throw new Error(`[ActionEngine] Handler '${handlerName}' not found for 'run' step.`);
+                }
+            }
+            else {
                 console.warn('[ActionEngine] Unknown or incomplete step:', step);
             }
         } catch (error) {

@@ -14,7 +14,7 @@ module.exports = {
   },
   connectors: {
     session: { type: 'wise-json', collection: 'sessions' },
-    user: { type: 'wise-json', collection: 'user' },
+    user: { type: 'wise-json', collection: 'user', initialState: { items: [] } },
     receipt: {
       type: 'wise-json',
       collection: 'receipt',
@@ -51,9 +51,55 @@ module.exports = {
     },
     'GET /login': { type: 'view', layout: 'authLayout', inject: { 'form': 'loginForm' } },
     'GET /register': { type: 'view', layout: 'authLayout', inject: { 'form': 'registerForm' } },
-    'POST /auth/login': { type: 'auth:login', successRedirect: '/', failureRedirect: '/login?error=1' },
-    'POST /auth/register': { type: 'auth:register', successRedirect: '/login?registered=true', failureRedirect: '/register?error=1' },
-    'GET /auth/logout': { type: 'auth:logout', successRedirect: '/login' },
+    
+    'POST /auth/login': {
+      type: 'action',
+      steps: [
+        { "set": "context.userToLogin", "to": "data.user.items.find(u => u.login === body.login)" },
+        { "set": "context.bcrypt", "to": "require('bcrypt')" },
+        {
+          "if": "context.userToLogin && context.bcrypt.compareSync(body.password, context.userToLogin.passwordHash)",
+          "then": [
+            { "auth:login": "context.userToLogin" },
+            { "client:redirect": "'/'" }
+          ],
+          "else": [
+            { "client:redirect": "'/login?error=1'" }
+          ]
+        }
+      ],
+      reads: ['user']
+    },
+    'POST /auth/register': {
+      type: 'action',
+      steps: [
+        { "set": "context.userExists", "to": "data.user.items.some(u => u.login === body.login)" },
+        {
+          "if": "context.userExists",
+          "then": [{ "client:redirect": "'/register?error=1'" }],
+          "else": [
+            { "set": "context.bcrypt", "to": "require('bcrypt')" },
+            { "set": "context.saltRounds", "to": "10" },
+            { "set": "context.passwordHash", "to": "context.bcrypt.hashSync(body.password, context.saltRounds)" },
+            { "set": "context.newUser", "to": "{ login: body.login, name: body.name, role: 'Кассир', passwordHash: context.passwordHash }" },
+            { "set": "data.user.items", "to": "data.user.items.concat([context.newUser])" },
+            { "client:redirect": "'/login?registered=true'" }
+          ]
+        }
+      ],
+      reads: ['user'],
+      writes: ['user']
+    },
+    'GET /auth/logout': {
+      type: 'action',
+      steps: [
+        { "auth:logout": true },
+        { "client:redirect": "'/login'" }
+      ],
+      reads: ['user'],
+      auth: { required: true }
+    },
+
     'POST /action/addItem': {
       type: 'action',
       steps: [
@@ -70,7 +116,7 @@ module.exports = {
         { "set": "data.receipt.statusMessage", "to": "''" },
         ...recalculateReceiptSteps
       ],
-      reads: ['positions', 'receipt'],
+      reads: ['positions', 'receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
     },
@@ -83,7 +129,7 @@ module.exports = {
         { "set": "data.receipt.bonusApplied", "to": "false" },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt'],
+      reads: ['receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
     },
@@ -104,14 +150,15 @@ module.exports = {
         { "set": "data.receipt.statusMessage", "to": "''" },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt'],
+      reads: ['receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
     },
     'POST /action/filterPositions': {
       type: 'action',
-      handler: 'filterPositions',
-      reads: ['positions', 'viewState'],
+      // --- ИЗМЕНЕНИЕ: Указываем только имя файла ---
+      steps: [{ "run": "filterPositions" }],
+      reads: ['positions', 'viewState', 'user'],
       writes: ['viewState'],
       update: 'positionsList'
     },
@@ -134,7 +181,7 @@ module.exports = {
         },
         ...recalculateReceiptSteps
       ],
-      reads: ['receipt'],
+      reads: ['receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
     },
@@ -167,7 +214,7 @@ module.exports = {
           ]
         }
       ],
-      reads: ['receipt'],
+      reads: ['receipt', 'user'],
       writes: ['receipt'],
       update: 'receipt'
     }

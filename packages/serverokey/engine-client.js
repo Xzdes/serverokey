@@ -50,15 +50,21 @@ async function handleAction(event) {
     if (form && form.hasAttribute('data-native-submit')) {
         return;
     }
-    
-    const element = event.target.closest('[atom-action]');
-    if (!element) return;
 
-    const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
+    let element = event.target.closest('[atom-action]');
+    if (event.type === 'submit' && !element && form) {
+        element = form;
+    }
+
+    if (!element || !element.hasAttribute('atom-action')) {
+       if (event.type === 'submit' && form && form.getAttribute('action') && !form.hasAttribute('atom-action')) {
+            return;
+        }
+        if(!element) return;
+    }
     
-    if (event.type === 'submit') {
-         // for forms, the event target is the form itself, which has the action
-    } else if (event.type !== requiredEventType) {
+    const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
+    if (event.type !== requiredEventType) {
         return;
     }
 
@@ -73,25 +79,27 @@ async function handleAction(event) {
     }
 
     const [method, url] = action.split(' ');
-    const body = getActionBody(element);
+
+    // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    const fetchOptions = {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+    };
+
+    if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
+        fetchOptions.body = getActionBody(event.target);
+    }
+    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     try {
         if (isDebugMode) {
             console.groupCollapsed(`[DEBUG] Action Triggered: ${action}`);
             console.log('DOM Element:', element);
-            try {
-                console.log('Body Sent:', JSON.parse(body));
-            } catch {
-                console.log('Body Sent (raw):', body);
-            }
+            if(fetchOptions.body) console.log('Body Sent:', JSON.parse(fetchOptions.body));
             console.groupEnd();
         }
         
-        const response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: body
-        });
+        const response = await fetch(url, fetchOptions);
 
         if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 
@@ -103,13 +111,11 @@ async function handleAction(event) {
             console.groupEnd();
         }
 
-        // 1. Проверяем, не нужно ли сделать редирект
         if (payload.redirectUrl) {
             window.location.href = payload.redirectUrl;
-            return; // Прерываем выполнение
+            return;
         }
         
-        // 2. Если редиректа нет, обновляем компонент
         if (payload.html && targetSelector) {
             const targetElement = document.querySelector(targetSelector);
             if (!targetElement) throw new Error(`[Engine] Target element "${targetSelector}" not found.`);

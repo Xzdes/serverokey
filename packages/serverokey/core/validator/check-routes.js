@@ -30,6 +30,7 @@ function levenshtein(a, b) {
     return matrix[b.length][a.length];
 }
 
+
 function validateRoutes(manifest, appPath) {
   const routes = manifest.routes || {};
   const componentNames = Object.keys(manifest.components || {});
@@ -39,7 +40,7 @@ function validateRoutes(manifest, appPath) {
     const route = routes[routeKey];
     const category = `Route '${routeKey}'`;
 
-    const validTypes = ['view', 'action', 'auth:register', 'auth:login', 'auth:logout'];
+    const validTypes = ['view', 'action'];
     if (!route.type || !validTypes.includes(route.type)) {
       addIssue('error', category, `Route is missing or has invalid 'type'. Must be one of: ${validTypes.join(', ')}.`);
       continue;
@@ -49,8 +50,6 @@ function validateRoutes(manifest, appPath) {
       validateViewRoute(route, category, componentNames, connectorNames);
     } else if (route.type === 'action') {
       validateActionRoute(route, category, componentNames, connectorNames, appPath);
-    } else if (route.type.startsWith('auth:')) {
-      validateAuthRoute(route, category, manifest);
     }
   }
 }
@@ -77,32 +76,12 @@ function validateViewRoute(route, category, componentNames, connectorNames) {
 }
 
 function validateActionRoute(route, category, componentNames, connectorNames, appPath) {
-  const logicTypes = ['handler', 'manipulate', 'steps'].filter(t => route[t]);
-  if (logicTypes.length === 0) {
-    addIssue('error', category, `Action route must have one of 'handler', 'manipulate', or 'steps'.`);
-  } else if (logicTypes.length > 1) {
-    addIssue('warning', category, `Multiple logic types defined (${logicTypes.join(', ')}). Priority is: steps > manipulate > handler.`);
+  if (!route.steps) {
+    addIssue('error', category, `Action route must have a 'steps' property.`);
   }
-  
+
   const reads = new Set(route.reads || []);
 
-  if (route.handler) {
-    checkFileExists(path.join(appPath, 'app', 'actions', `${route.handler}.js`), category, `handler '${route.handler}'`);
-  }
-  
-  if (route.manipulate) {
-    if (route.manipulate.operation?.startsWith('custom:')) {
-      const opName = route.manipulate.operation.substring(7);
-      checkFileExists(path.join(appPath, 'app', 'operations', `${opName}.js`), category, `custom operation '${opName}'`);
-    }
-    if (route.manipulate.operation === 'push' && route.manipulate.source) {
-        const sourceConnector = route.manipulate.source.split('.')[0];
-        if (!reads.has(sourceConnector)) {
-            addIssue('error', category, `manipulate.source "${route.manipulate.source}" requires connector "${sourceConnector}" to be listed in 'reads'.`, getSuggestion(sourceConnector, connectorNames));
-        }
-    }
-  }
-  
   (route.reads || []).forEach(name => {
     if (!connectorNames.includes(name)) addIssue('error', category, `Read connector '${name}' is not defined.`, getSuggestion(name, connectorNames));
   });
@@ -111,9 +90,11 @@ function validateActionRoute(route, category, componentNames, connectorNames, ap
     if (!connectorNames.includes(name)) addIssue('error', category, `Write connector '${name}' is not defined.`, getSuggestion(name, connectorNames));
   });
   
-  if (!route.update) {
-    addIssue('error', category, `Action route is missing 'update' property, which specifies which component to re-render.`);
-  } else if (!componentNames.includes(route.update)) {
+  const hasRedirect = JSON.stringify(route.steps).includes('"client:redirect"');
+
+  if (!route.update && !hasRedirect) {
+    addIssue('error', category, `Action route is missing 'update' property and does not perform a 'client:redirect'. You must specify which component to re-render.`);
+  } else if (route.update && !componentNames.includes(route.update)) {
     addIssue('error', category, `Update component '${route.update}' is not defined.`, getSuggestion(route.update, componentNames));
   }
 
@@ -122,22 +103,12 @@ function validateActionRoute(route, category, componentNames, connectorNames, ap
   }
 }
 
-function validateAuthRoute(route, category, manifest) {
-    if (!manifest.auth) {
-        addIssue('error', category, `Auth route type requires an 'auth' section in manifest.js.`);
-        return;
-    }
-    if (!route.successRedirect) {
-        addIssue('warning', category, `Auth route is missing 'successRedirect'. Will redirect to '/' by default.`);
-    }
-    if (route.type !== 'auth:logout' && !route.failureRedirect) {
-        addIssue('warning', category, `Auth route is missing 'failureRedirect'.`);
-    }
-}
-
 function checkSteps(steps, category, availableReads, appPath) {
     steps.forEach(step => {
         if (!step) return;
+        if(step.run) {
+             checkFileExists(path.join(appPath, 'app', step.run + '.js'), category, `run script '${step.run}'`);
+        }
         if(step.then) checkSteps(step.then, category, availableReads, appPath);
         if(step.else) checkSteps(step.else, category, availableReads, appPath);
         if(step.steps) checkSteps(step.steps, category, availableReads, appPath);
@@ -155,15 +126,20 @@ function checkSteps(steps, category, availableReads, appPath) {
 function checkExpression(expression, category, availableReads) {
     const varRegex = /(?<!['"])\b[a-zA-Z_][\w.]*\b(?!['"])/g;
     const potentialVars = String(expression).match(varRegex) || [];
+    // --- ИЗМЕНЕНИЕ: Добавляем bcrypt ---
+    const allowedGlobals = ['true', 'false', 'null', 'undefined', 'context', 'body', 'user', 'require', 'zod', 'Math', 'Number', 'String', 'Object', 'Array', 'Date', 'JSON', 'bcrypt'];
 
     potentialVars.forEach(v => {
-        if (['true', 'false', 'null', 'undefined'].includes(v)) return;
-        
         const rootVar = v.split('.')[0];
-        if (rootVar === 'context' || rootVar === 'body') return;
+        if (allowedGlobals.includes(rootVar)) return;
         
-        if (!availableReads.has(rootVar)) {
-            addIssue('error', category, `Expression "${expression}" uses variable "${v}" but its source "${rootVar}" is not listed in 'reads'.`, `Available reads: [${Array.from(availableReads).join(', ')}]`);
+        if (rootVar === 'data') {
+            const connectorName = v.split('.')[1];
+            if (!availableReads.has(connectorName)) {
+                 addIssue('error', category, `Expression "${expression}" uses variable "${v}" but its source connector "${connectorName}" is not listed in 'reads'.`, `Available reads: [${Array.from(availableReads).join(', ')}]`);
+            }
+        } else {
+            addIssue('warning', category, `Expression "${expression}" uses variable "${v}" which is not a known global or part of the 'data' context. Did you mean 'data.${v}'?`);
         }
     });
 }

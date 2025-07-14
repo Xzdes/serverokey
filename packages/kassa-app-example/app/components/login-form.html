@@ -4,8 +4,8 @@
     <p atom-if="url.query.registered" style="color: green; text-align: center;">Регистрация прошла успешно! Теперь вы можете войти.</p>
     <p class="error" atom-if="url.query.error">Неверный логин или пароль.</p>
 
-    <!-- ИЗМЕНЕНИЕ: Добавляем data-native-submit и стандартные action/method -->
-    <form action="/auth/login" method="POST" data-native-submit="true">
+    <!-- ИЗМЕНЕНИЕ: Добавляем atom-action на форму -->
+    <form action="/auth/login" method="POST" atom-action="POST /auth/login">
         <div class="form-group">
             <label for="login">Логин</label>
             <input type="text" id="login" name="login" required>

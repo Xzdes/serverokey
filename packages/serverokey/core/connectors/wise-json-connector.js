@@ -39,10 +39,12 @@ class WiseJsonConnector {
         
         const allDocs = await this.collection.getAll() || [];
         
-        if (this.name === 'user' || this.name === 'session') {
+        // --- ИЗМЕНЕНИЕ: Только 'session' имеет особое поведение ---
+        if (this.name === 'session') {
             return allDocs; 
         }
 
+        // Все остальные коннекторы, включая 'user', работают по единому правилу
         const metaDoc = await this.collection.findOne({_id: '_meta'});
         const items = allDocs.filter(d => d._id !== '_meta');
         
@@ -55,31 +57,29 @@ class WiseJsonConnector {
     async write(newData) {
         await this.initPromise;
         
-        if (this.name === 'user' || this.name === 'session') {
+        // --- ИЗМЕНЕНИЕ: Убираем проверку на 'user' ---
+        if (this.name === 'session') {
              console.warn(`[WiseJsonConnector] Direct write to collection-type connector '${this.name}' is not supported. Use auth actions.`);
              return;
         }
         
         const dataToSave = { ...newData };
         const docsToSave = dataToSave.items || [];
-        delete dataToSave.items; // Готовим мета-данные для сохранения
+        delete dataToSave.items;
         
         const txn = dbInstance.beginTransaction();
         try {
             const txnCollection = txn.collection(this.collectionName);
 
-            // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: УПРОЩЕННАЯ ЛОГИКА ЗАПИСИ ---
-            // 1. Полностью очищаем коллекцию от старого состояния.
             await txnCollection.clear(); 
             
-            // 2. Вставляем массив с новыми товарами.
             if (docsToSave.length > 0) {
                 await txnCollection.insertMany(docsToSave);
             }
             
-            // 3. Вставляем один документ с мета-данными (total, discount, etc.).
-            // Нам не нужно проверять его наличие, так как мы все очистили.
-            await txnCollection.insert({_id: '_meta', ...dataToSave});
+            if (Object.keys(dataToSave).length > 0) {
+                await txnCollection.insert({_id: '_meta', ...dataToSave});
+            }
 
             await txn.commit();
         } catch (error) {

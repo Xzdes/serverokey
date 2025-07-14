@@ -3,8 +3,8 @@
     
     <p class="error" atom-if="url.query.error">Этот логин уже занят или произошла ошибка.</p>
     
-    <!-- ИЗМЕНЕНИЕ: Добавляем data-native-submit и стандартные action/method -->
-    <form action="/auth/register" method="POST" data-native-submit="true">
+    <!-- ИЗМЕНЕНИЕ: Добавляем atom-action на форму -->
+    <form action="/auth/register" method="POST" atom-action="POST /auth/register">
         <div class="form-group">
             <label for="name">Имя</label>
             <input type="text" id="name" name="name" required>

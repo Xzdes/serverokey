@@ -75,11 +75,10 @@
     <!-- +++ НОВАЯ ШАПКА С КНОПКОЙ ВЫХОДА +++ -->
     <header class="app-header">
         <h1>{{appName}}</h1>
-        <!-- Этот блок будет показан, только если есть данные пользователя (т.е. он залогинен) -->
         <div class="user-info" atom-if="user.name">
-            <!-- ИЗМЕНЕНИЕ: Убедимся, что здесь правильные переменные -->
             <span>{{user.name}} ({{user.role}})</span>
-            <a href="/auth/logout">Выход</a>
+            <!-- ИЗМЕНЕНИЕ: Добавляем atom-action, чтобы включить AJAX-логику -->
+            <a href="/auth/logout" atom-action="GET /auth/logout" atom-target="body">Выход</a>
         </div>
     </header>
     <!-- +++ КОНЕЦ НОВОГО БЛОКА +++ -->

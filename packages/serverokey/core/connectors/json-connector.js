@@ -10,62 +10,50 @@ class JsonConnector {
         this.appPath = appPath;
         this.filePath = path.join(this.appPath, 'app', 'data', `${this.name}.json`);
         this.data = null;
-        this.writeQueue = [];
-        this.isWriting = false;
+        this.initPromise = this.load();
     }
 
     async read() {
-        if (this.data === null) {
-            await this.load();
-        }
+        await this.initPromise;
+        // Возвращаем глубокую копию данных
         return JSON.parse(JSON.stringify(this.data));
     }
 
     async write(newData) {
-        return new Promise((resolve, reject) => {
-            this.writeQueue.push({ data: newData, resolve, reject });
-            this._processQueue();
-        });
-    }
-
-    async _processQueue() {
-        if (this.isWriting || this.writeQueue.length === 0) {
-            return;
-        }
-
-        this.isWriting = true;
-        const { data, resolve, reject } = this.writeQueue.shift();
-
-        try {
-            this.data = data;
-            this._runComputations();
-            await this.save();
-            resolve();
-        } catch (error) {
-            reject(error);
-        } finally {
-            this.isWriting = false;
-            this._processQueue();
-        }
+        // Записываем новые данные и сохраняем в файл.
+        this.data = JSON.parse(JSON.stringify(newData));
+        this._runComputations();
+        await this.save();
     }
     
     async load() {
         console.log(`[JsonConnector] Loading data for '${this.name}'...`);
         try {
             if (!fs.existsSync(this.filePath)) {
-                 throw new Error(`File not found: ${this.filePath}`);
+                 // Если файла нет, создаем его с initialState
+                 console.log(`[JsonConnector] File not found for '${this.name}'. Creating with initial state.`);
+                 this.data = this.config.initialState || {};
+                 await this.save();
+            } else {
+                this.data = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
             }
-            this.data = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
         } catch (e) {
+            console.error(`[JsonConnector] Error loading or creating file for '${this.name}'. Using empty state.`, e);
             this.data = this.config.initialState || {};
-            console.log(`[JsonConnector] Initialized '${this.name}' with initial state.`);
-            await this.save();
         }
     }
 
     async save() {
-        await fs.promises.writeFile(this.filePath, JSON.stringify(this.data, null, 2));
-        console.log(`[JsonConnector] Data source '${this.name}' saved.`);
+        try {
+            const dir = path.dirname(this.filePath);
+            if (!fs.existsSync(dir)) {
+                await fs.promises.mkdir(dir, { recursive: true });
+            }
+            await fs.promises.writeFile(this.filePath, JSON.stringify(this.data, null, 2));
+            console.log(`[JsonConnector] Data source '${this.name}' saved to ${this.filePath}.`);
+        } catch(e) {
+            console.error(`[JsonConnector] Failed to save data for '${this.name}'.`, e);
+        }
     }
 
     _runComputations() {
@@ -77,22 +65,21 @@ class JsonConnector {
 
         this.config.computed.forEach(rule => {
             const { target, formula, format } = rule;
-            if (!formula) {
-                console.warn(`[JsonConnector] Rule for target '${target}' has no formula.`);
-                return;
+            
+            let value;
+            if (formula) {
+                value = parser.evaluate(formula);
+            } else if (this.data.hasOwnProperty(target)) {
+                value = parseFloat(this.data[target]);
             }
 
-            const result = parser.evaluate(formula);
-
-            if (typeof result !== 'undefined' && !isNaN(result)) {
-                let value = result;
+            if (typeof value !== 'undefined' && !isNaN(value)) {
                 if (format === 'toFixed(2)') {
-                    value = result.toFixed(2);
+                    this.data[target] = value.toFixed(2);
+                } else {
+                    this.data[target] = value;
                 }
-                this.data[target] = value;
-                console.log(`[Engine] Computed '${this.name}.${target}' with formula "${formula}" = ${value}`);
             } else {
-                 console.warn(`[Engine] Formula "${formula}" for '${this.name}.${target}' resulted in an invalid value.`);
                  this.data[target] = rule.defaultValue !== undefined ? rule.defaultValue : 0;
             }
         });

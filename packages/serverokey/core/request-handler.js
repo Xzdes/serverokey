@@ -14,6 +14,7 @@ class RequestHandler {
         this.renderer = renderer;
         this.modulePath = modulePath;
         this.debug = options.debug || false;
+        this.appPath = path.dirname(require.resolve(`${process.cwd()}/manifest.js`));
         
         this.authEngine = null;
         this.userConnector = null;
@@ -66,45 +67,10 @@ class RequestHandler {
         }
         
         try {
-            if (this.authEngine && routeConfig.type.startsWith('auth:')) {
-                const body = await this._parseBody(req);
-                switch (routeConfig.type) {
-                    case 'auth:register':
-                        try {
-                            await this.authEngine.register(body);
-                            this.authEngine.redirect(res, routeConfig.successRedirect || '/');
-                        } catch (e) {
-                            if (this.debug) console.error('[Auth] Registration failed:', e.message);
-                            this.authEngine.redirect(res, routeConfig.failureRedirect || '/register?error=1');
-                        }
-                        break;
-                    case 'auth:login':
-                        try {
-                            const loggedInUser = await this.authEngine.login(body);
-                            const sessionId = await this.authEngine.createSession(loggedInUser);
-                            res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
-                                httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
-                            }));
-                            this.authEngine.redirect(res, routeConfig.successRedirect || '/');
-                        } catch (e) {
-                            if (this.debug) console.error('[Auth] Login failed:', e.message);
-                            this.authEngine.redirect(res, routeConfig.failureRedirect || '/login?error=1');
-                        }
-                        break;
-                    case 'auth:logout':
-                        await this.authEngine.clearSession(req, res);
-                        this.authEngine.redirect(res, routeConfig.successRedirect || '/login');
-                        break;
-                    default:
-                        res.writeHead(500, { 'Content-Type': 'text/plain' }).end(`Unknown auth route type: ${routeConfig.type}`);
-                }
-                return;
-            }
-
             if (routeConfig.type === 'view') {
                 const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
                 const dataContext = {
-                    data: dataFromReads, // Все данные из reads теперь в data
+                    data: dataFromReads,
                     user: user || null,
                 };
                 const html = await this.renderer.renderView(routeConfig, dataContext, url);
@@ -121,15 +87,8 @@ class RequestHandler {
                     body: body
                 };
 
-                const engine = new ActionEngine(context);
-                await engine.run(routeConfig.steps || (routeConfig.handler ? [ { handler: routeConfig.handler } ] : []));
-                
-                // Если был использован handler, он мог изменить контекст напрямую
-                if (routeConfig.handler) {
-                    const handlerFunc = this.assetLoader.getAction(routeConfig.handler);
-                    handlerFunc(engine.context, body);
-                }
-
+                const engine = new ActionEngine(context, this.appPath, this.assetLoader);
+                await engine.run(routeConfig.steps || []);
                 const finalContext = engine.context;
 
                 const internalActions = finalContext._internal || {};
@@ -158,12 +117,9 @@ class RequestHandler {
                 }
                 
                 if (routeConfig.update && !internalActions.redirectUrl) {
-                     // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-                     // Формируем ТОЧНО ТАКОЙ ЖЕ контекст, как и для 'view'
                      const componentRenderContext = {
                         data: finalContext.data,
                         user: finalContext.user,
-                        // `url` и `globals` будут добавлены внутри renderComponent
                      };
                      const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, url);
                      Object.assign(responsePayload, componentUpdate);
