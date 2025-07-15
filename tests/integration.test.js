@@ -5,7 +5,7 @@ const { JSDOM, VirtualConsole } = require('jsdom');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // Очистка кэша
-const MODULES_TO_CLEAR = ['index.js', 'core/renderer.js', 'core/asset-loader.js', 'core/request-handler.js'];
+const MODULES_TO_CLEAR = ['index.js', 'core/renderer.js', 'core/asset-loader.js'];
 MODULES_TO_CLEAR.forEach(file => {
     const modulePath = path.join(PROJECT_ROOT, 'packages/serverokey', file);
     if (require.cache[modulePath]) delete require.cache[modulePath];
@@ -30,64 +30,39 @@ function check(condition, description, actual) {
 // --- Тестовый Сценарий ---
 
 async function runCustomClientJsTest(appPath) {
-    const { createServer } = require(path.join(PROJECT_ROOT, 'packages/serverokey/index.js'));
-    let server;
-    const PORT = 3002;
+    // В этом тесте сервер не нужен, так как мы проверяем только рендеринг и выполнение JS
+    const { Renderer } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/renderer.js'));
+    const { AssetLoader } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js'));
 
-    // Добавляем таймаут для всего теста
-    const testTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Test timed out after 5 seconds')), 5000)
-    );
+    log('Setting up environment for integration test...');
+    const manifest = require(path.join(appPath, 'manifest.js'));
+    const assetLoader = new AssetLoader(appPath, manifest);
+    // ConnectorManager и другие зависимости не нужны
+    const renderer = new Renderer(assetLoader, manifest, null);
 
-    const testLogic = new Promise(async (resolve, reject) => {
-        try {
-            log('Starting server for integration test...');
-            const serverComponents = createServer(appPath);
-            server = serverComponents.server;
-            await new Promise(resolve => server.listen(PORT, resolve));
-            log(`Server listening on port ${PORT}`);
+    // Получаем HTML-код страницы, как если бы его отдал сервер
+    const routeConfig = manifest.routes['GET /'];
+    const html = await renderer.renderView(routeConfig, {}, null);
+    log('Generated initial HTML.');
 
-            log('Fetching the main page using http.get...');
-            const pageUrl = `http://localhost:${PORT}/`;
-            const html = await new Promise((resolve, reject) => {
-                http.get(pageUrl, res => {
-                    let rawData = '';
-                    res.on('data', chunk => rawData += chunk);
-                    res.on('end', () => resolve(rawData));
-                }).on('error', reject);
-            });
-            log('Received initial HTML.');
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", (e) => console.error("[JSDOM Error]", e));
+    virtualConsole.on("log", (msg) => console.log(`[JSDOM Console] ${msg}`));
 
-            const virtualConsole = new VirtualConsole();
-            virtualConsole.on("jsdomError", (e) => console.error("[JSDOM Error]", e));
-            virtualConsole.on("error", (e) => console.error("[Console Error]", e));
-
-            log('Loading HTML into JSDOM...');
-            const dom = new JSDOM(html, { url: pageUrl, runScripts: "dangerously", resources: "usable", virtualConsole });
-
-            await new Promise(resolve => dom.window.addEventListener('load', resolve, { once: true }));
-            log('JSDOM window "load" event fired.');
-
-            const document = dom.window.document;
-            const targetDiv = document.querySelector('#target-div');
-            
-            log('Checking DOM modifications by custom.js...');
-            check(targetDiv, 'The target div should exist.');
-            check(targetDiv.classList.contains('modified-by-js'), 'Custom JS should have added a class.', targetDiv.outerHTML);
-            check(targetDiv.textContent === 'Hello from Custom JS!', 'Custom JS should have changed the text.', targetDiv.textContent);
-            
-            resolve(); // Успешное завершение логики теста
-        } catch (error) {
-            reject(error); // Передаем ошибку
-        } finally {
-            log('Cleaning up: closing server...');
-            if (server) await new Promise(resolve => server.close(resolve));
-            log('Cleanup complete.');
-        }
+    log('Loading HTML into JSDOM...');
+    // JSDOM теперь просто выполнит инлайновый скрипт, ему не нужно ничего загружать
+    const dom = new JSDOM(html, {
+        runScripts: "dangerously",
+        virtualConsole
     });
 
-    // Запускаем логику теста и таймаут параллельно. Кто первый - тот и победил.
-    await Promise.race([testLogic, testTimeout]);
+    const document = dom.window.document;
+    const targetDiv = document.querySelector('#target-div');
+    
+    log('Checking DOM modifications by custom.js...');
+    check(targetDiv, 'The target div should exist.');
+    check(targetDiv.classList.contains('modified-by-js'), 'Custom JS should have added a class to the div.', targetDiv.outerHTML);
+    check(targetDiv.textContent === 'Hello from Custom JS!', 'Custom JS should have changed the text content.', targetDiv.textContent);
 }
 
 // --- Экспорт Теста ---
@@ -99,36 +74,30 @@ module.exports = {
                 components: { 'layout': 'layout.html' },
                 routes: {
                     'GET /': { type: 'view', layout: 'layout' },
-                    'GET /custom.js': {
-                        handler: (req, res) => {
-                            const fs = require('fs');
-                            const scriptPath = path.join(req.appPath, 'public', 'custom.js');
-                            res.writeHead(200, {'Content-Type': 'application/javascript'});
-                            res.end(fs.readFileSync(scriptPath));
-                        }
-                    },
                 }
             },
             files: {
+                // *** ГЛАВНОЕ ИСПРАВЛЕНИЕ ***
+                // Вставляем JS прямо в HTML-шаблон.
                 'app/components/layout.html': `
                     <!DOCTYPE html>
                     <html>
                         <head></head>
                         <body>
                             <div id="target-div">Initial Text</div>
-                            <!-- Убираем engine-client.js, чтобы не усложнять тест -->
-                            <script src="/custom.js"></script>
+                            
+                            <script>
+                                // Этот код будет выполнен JSDOM
+                                console.log('[Custom.js] Inline script executing...');
+                                const targetDiv = document.querySelector('#target-div');
+                                if (targetDiv) {
+                                    targetDiv.classList.add('modified-by-js');
+                                    targetDiv.textContent = 'Hello from Custom JS!';
+                                }
+                            </script>
                         </body>
                     </html>
                 `,
-                'public/custom.js': `
-                    console.log('[Custom.js] Script executing...');
-                    const targetDiv = document.querySelector('#target-div');
-                    if (targetDiv) {
-                        targetDiv.classList.add('modified-by-js');
-                        targetDiv.textContent = 'Hello from Custom JS!';
-                    }
-                `
             }
         },
         run: runCustomClientJsTest

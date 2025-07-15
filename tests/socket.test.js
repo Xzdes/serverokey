@@ -43,17 +43,15 @@ async function runSocketEngineTest(appPath) {
 
     try {
         log('Starting a temporary Serverokey server...');
-        server = createServer(appPath);
+        // Правильно извлекаем экземпляр сервера из объекта
+        const serverComponents = createServer(appPath);
+        server = serverComponents.server;
+        
         await new Promise(resolve => server.listen(PORT, resolve));
         log(`Server is listening on port ${PORT}`);
 
         const receivedMessages = [];
 
-        /**
-         * Улучшенная функция создания клиента.
-         * Теперь она возвращает промис, который разрешается ТОЛЬКО ПОСЛЕ
-         * получения `socket_id_assigned` от сервера.
-         */
         const createAndInitializeClient = (url) => {
             return new Promise((resolve, reject) => {
                 const ws = new WebSocket(url);
