@@ -1,16 +1,21 @@
-// core/action-engine.js
+// packages/serverokey/core/action-engine.js
 const http = require('http');
 const https = require('https');
 const { z } = require('zod');
 const path = require('path');
 
+/**
+ * Безопасно вычисляет JavaScript-выражение в заданном контексте.
+ * @param {string} expression - Выражение для вычисления.
+ * @param {object} context - Контекст с данными (data, user, body, context).
+ * @param {string} appPath - Путь к приложению для разрешения модулей.
+ * @param {boolean} debug - Флаг отладки.
+ * @returns {*} - Результат вычисления или undefined в случае ошибки.
+ */
 function evaluate(expression, context, appPath, debug = false) {
     if (typeof expression !== 'string') return expression;
 
     try {
-        // Мы передаем весь контекст как один объект `ctx`.
-        // Конструкция `with (ctx)` говорит JS: "При поиске переменных (таких как `data`, `body` и т.д.),
-        // сначала ищи их как свойства объекта `ctx`".
         const func = new Function('ctx', 'require', `
             with (ctx) {
                 return (${expression});
@@ -34,16 +39,17 @@ function evaluate(expression, context, appPath, debug = false) {
 
     } catch (error) {
         if (debug) {
-            // Это предупреждение будет появляться при реальных ошибках (синтаксических или ошибках времени выполнения).
-            // Доступ к `undefined.property` как раз является такой ошибкой.
             console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
-        // Если происходит ошибка (как `Cannot read...`), мы возвращаем undefined.
-        // Это и есть наше "прощающее" поведение.
         return undefined;
     }
 }
 
+/**
+ * Выполняет GET-запрос к внешнему API.
+ * @param {string} url - URL для запроса.
+ * @returns {Promise<object>} - Промис, который разрешается с JSON-ответом.
+ */
 function httpGet(url) {
     const client = url.startsWith('https://') ? https : http;
     const REQUEST_TIMEOUT = 5000;
@@ -161,7 +167,13 @@ class ActionEngine {
                     data: this.context.data
                 };
                 
-                const resultContext = await this.requestHandler.runAction(targetActionName, subContext, null, this.debug);
+                const resultContext = await this.requestHandler.runAction(
+                    targetActionName, 
+                    subContext, 
+                    null,
+                    null,
+                    this.debug
+                );
                 
                 Object.assign(this.context.data, resultContext.data);
             }

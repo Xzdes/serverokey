@@ -13,15 +13,11 @@ class RequestHandler {
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
-        
-        // Используем переданный appPath вместо process.cwd()
         this.appPath = appPath;
         if (!this.appPath) {
             throw new Error('[RequestHandler] appPath must be provided.');
         }
-
         this.debug = options.debug || false;
-        
         this.authEngine = null;
         this.userConnector = null;
         this.socketEngine = null;
@@ -60,75 +56,75 @@ class RequestHandler {
             }
         }
         
-        const routeConfig = this.findRoute(routeKey);
-
-        if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
-            res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(fs.readFileSync(clientScriptPath));
-            return;
-        }
+        let routeConfig = this.findRoute(routeKey);
 
         if (!routeConfig) {
             const internalRoute = this.findRoute(url.pathname.substring(1));
-            if (!internalRoute || internalRoute.internal !== true) {
-                 res.writeHead(404).end('Not Found');
-                 return;
+            if (internalRoute && internalRoute.internal === true) {
+                console.warn(`[RequestHandler] Attempted to access internal route '${url.pathname}' via HTTP. Denied.`);
+                res.writeHead(403).end('Forbidden');
+                return;
             }
-            console.warn(`[RequestHandler] Attempted to access internal route '${url.pathname}' via HTTP. Denied.`);
-            res.writeHead(403).end('Forbidden');
+            res.writeHead(404).end('Not Found');
             return;
         }
 
         if (routeConfig.auth?.required && !user) {
-            this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+            if (this.authEngine) {
+                this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+            } else {
+                 res.writeHead(403).end('Forbidden: Auth engine not configured.');
+            }
             return;
         }
         
         try {
             if (routeConfig.type === 'view') {
                 const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
-                const dataContext = {
-                    data: dataFromReads,
-                    user: user || null,
-                };
+                const dataContext = { data: dataFromReads, user: user || null };
                 
-                // --- НАЧАЛО ИЗМЕНЕНИЯ ДЛЯ SPA ---
                 const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
                 if (isSpaRequest) {
-                    // Это SPA-запрос, отдаем JSON с нужными частями
-                    const injectedParts = {};
-                    if(routeConfig.inject) {
+                    let spaContentHtml = '';
+                    const allStyles = [];
+                    const allScripts = [];
+
+                    if (routeConfig.inject) {
                         for (const placeholder in routeConfig.inject) {
                             const componentName = routeConfig.inject[placeholder];
-                            const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
-                            injectedParts[placeholder] = { html, styles, scripts };
+                            if (componentName) {
+                                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
+                                spaContentHtml += `<div id="${placeholder}-container">${html}</div>`;
+                                // --- ИСПРАВЛЕНИЕ: Добавляем стили в массив для отправки ---
+                                if (styles) allStyles.push({ name: componentName, css: styles });
+                                if (scripts) allScripts.push(...scripts);
+                            }
                         }
                     }
 
-                    // Получаем заголовок для страницы из конфигурации компонента
                     const componentNameForTitle = routeConfig.inject?.pageContent || routeConfig.layout;
                     const componentConfig = this.manifest.components[componentNameForTitle];
-                    const pageTitle = (typeof componentConfig === 'object' && componentConfig.title)
-                        ? componentConfig.title
+                    const pageTitle = (typeof componentConfig === 'object' && componentConfig.title) 
+                        ? componentConfig.title 
                         : (this.manifest.globals?.appName || 'Serverokey App');
-
 
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({
                         title: pageTitle,
-                        injectedParts: injectedParts
+                        content: spaContentHtml,
+                        styles: allStyles, // <-- Отправляем стили клиенту
+                        scripts: allScripts
                     }));
+
                 } else {
-                    // Это обычный запрос (первая загрузка), рендерим всю страницу
                     const html = await this.renderer.renderView(routeConfig, dataContext, url);
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
                 }
-                // --- КОНЕЦ ИЗМЕНЕНИЯ ДЛЯ SPA ---
 
             } else if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
                 const socketId = req.headers['x-socket-id'] || null;
-                await this.runAction(routeKey, { user, body, socketId }, res, this.debug);
+                await this.runAction(routeKey, { user, body, socketId }, req, res, this.debug);
             }
         } catch (error) {
             console.error(`[Engine] Error processing route ${routeKey}:`, error);
@@ -143,7 +139,7 @@ class RequestHandler {
         return null;
     }
 
-    async runAction(routeName, initialContext, res, debug = false) {
+    async runAction(routeName, initialContext, req, res, debug = false) {
         const routeConfig = this.findRoute(routeName);
         if (!routeConfig) {
             throw new Error(`[RequestHandler] Action route '${routeName}' not found.`);
@@ -169,7 +165,7 @@ class RequestHandler {
         }
         
         if (internalActions.logout && this.authEngine) {
-            if(res) await this.authEngine.clearSession(res.req, res);
+            if(res) await this.authEngine.clearSession(req, res);
         }
 
         for (const key of (routeConfig.writes || [])) {
@@ -186,7 +182,7 @@ class RequestHandler {
             if (internalActions.redirectUrl) {
                 responsePayload.redirectUrl = internalActions.redirectUrl;
             } else if (routeConfig.update) {
-                 const currentUrl = res.req ? new URL(res.req.url, `http://${res.req.headers.host}`) : null;
+                 const currentUrl = req ? new URL(req.url, `http://${req.headers.host}`) : null;
                  const componentRenderContext = { data: finalContext.data, user: finalContext.user };
                  const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);
                  Object.assign(responsePayload, componentUpdate);
@@ -204,7 +200,6 @@ class RequestHandler {
         return new Promise((resolve, reject) => {
             let body = '';
             let size = 0;
-
             req.on('data', chunk => {
                 size += chunk.length;
                 if (size > MAX_BODY_SIZE) {
@@ -214,7 +209,6 @@ class RequestHandler {
                 }
                 body += chunk.toString();
             });
-
             req.on('end', () => {
                 try {
                     if (contentType.includes('application/json')) {
@@ -222,17 +216,12 @@ class RequestHandler {
                     } else if (contentType.includes('application/x-www-form-urlencoded')) {
                         const params = new URLSearchParams(body);
                         resolve(Object.fromEntries(params.entries()));
-                    } else {
-                        resolve({});
-                    }
+                    } else { resolve({}); }
                 } catch (e) {
                     reject(new Error('Invalid request body'));
                 }
             });
-
-            req.on('error', err => {
-                reject(err);
-            });
+            req.on('error', err => reject(err));
         });
     }
 }

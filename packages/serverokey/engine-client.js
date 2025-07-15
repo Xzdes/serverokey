@@ -3,6 +3,11 @@
 const isDebugMode = document.body.hasAttribute('data-debug-mode');
 let socketId = null;
 
+/**
+ * Собирает данные из формы или с элемента для отправки на сервер.
+ * @param {HTMLElement} element - Элемент, инициировавший действие.
+ * @returns {string} - JSON-строка с данными.
+ */
 function getActionBody(element) {
     const form = element.closest('form');
     const data = {};
@@ -11,18 +16,20 @@ function getActionBody(element) {
         for (const [key, value] of formData.entries()) {
             data[key] = value;
         }
-    } else if (element.name) {
-        data[element.name] = element.value;
     }
-    if (element.tagName === 'BUTTON' && element.name && element.value) {
-        data[element.name] = element.value;
-    }
-    if(element.form && element.name && element.value) {
+    // Для кнопок и инпутов с name/value, добавляем их в тело запроса.
+    // Это важно для кнопок, передающих, например, ID элемента.
+    if (element.name && element.value) {
         data[element.name] = element.value;
     }
     return JSON.stringify(data);
 }
 
+/**
+ * Динамически создает или обновляет тег <style> для компонента в <head>.
+ * @param {string} componentName - Имя компонента, которому принадлежат стили.
+ * @param {string} newStyles - Новый CSS-код.
+ */
 function updateStyles(componentName, newStyles) {
     if (!newStyles || !componentName) return;
     const styleId = `style-for-${componentName}`;
@@ -33,11 +40,16 @@ function updateStyles(componentName, newStyles) {
         styleTag.setAttribute('data-component-name', componentName);
         document.head.appendChild(styleTag);
     }
+    // Обновляем стили, только если они изменились, чтобы избежать лишних перерисовок.
     if (styleTag.textContent !== newStyles) {
         styleTag.textContent = newStyles;
     }
 }
 
+/**
+ * Выполняет клиентские скрипты, присланные с сервера.
+ * @param {Array} scripts - Массив объектов скриптов.
+ */
 function executeScripts(scripts) {
     if (!scripts || !Array.isArray(scripts)) return;
     scripts.forEach(scriptInfo => {
@@ -49,6 +61,10 @@ function executeScripts(scripts) {
     });
 }
 
+/**
+ * Обрабатывает все взаимодействия с атрибутом `atom-action`.
+ * @param {Event} event - DOM-событие.
+ */
 async function handleAction(event) {
     const element = event.target.closest('[atom-action]');
     if (!element) return;
@@ -123,7 +139,10 @@ async function handleAction(event) {
     }
 }
 
-// --- КЛЮЧЕВЫЕ ИЗМЕНЕНИЯ ЗДЕСЬ ---
+/**
+ * Обрабатывает клики по SPA-ссылкам с атрибутом `atom-link="spa"`.
+ * @param {Event} event - DOM-событие.
+ */
 async function handleSpaNavigation(event) {
     const link = event.target.closest('a[atom-link="spa"]');
     if (!link) return;
@@ -144,20 +163,17 @@ async function handleSpaNavigation(event) {
 
         document.title = payload.title || document.title;
         
-        // Обновляем все стили, которые прислал сервер
         (payload.styles || []).forEach(styleInfo => {
             updateStyles(styleInfo.name, styleInfo.css);
         });
 
-        // Находим главный контейнер и вставляем в него ГОТОВЫЙ HTML
         const mainContainer = document.getElementById('pageContent-container');
-        if (mainContainer && payload.content) {
+        if (mainContainer && payload.content !== undefined) {
             mainContainer.innerHTML = payload.content;
         } else if (!mainContainer) {
             console.error('[Engine] SPA Error: Main content container #pageContent-container not found.');
         }
         
-        // Выполняем все скрипты
         executeScripts(payload.scripts);
 
         if (window.location.href !== targetUrl.href) {
@@ -170,16 +186,66 @@ async function handleSpaNavigation(event) {
     }
 }
 
+/**
+ * Инициализирует WebSocket-соединение.
+ */
 function initializeWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
+    
     const ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => console.log('[Engine] WebSocket connection established.');
-    ws.onmessage = (message) => { /* ... */ };
-    ws.onclose = () => { /* ... */ };
-    ws.onerror = (error) => { /* ... */ };
+    ws.onopen = () => {
+        if (isDebugMode) console.log('[Engine] WebSocket connection established.');
+    };
+
+    ws.onmessage = (message) => {
+        try {
+            const data = JSON.parse(message.data);
+            if (data.type === 'socket_id_assigned') {
+                socketId = data.id;
+                if (isDebugMode) console.log(`[Engine] WebSocket ID assigned: ${socketId}`);
+                document.querySelectorAll('[atom-socket]').forEach(element => {
+                    const channelName = element.getAttribute('atom-socket');
+                    if (channelName) {
+                        ws.send(JSON.stringify({ type: 'subscribe', channel: channelName }));
+                    }
+                });
+                return;
+            }
+
+            if (isDebugMode) {
+                console.groupCollapsed(`[DEBUG] WebSocket Event Received: ${data.event}`);
+                console.log('Payload:', data.payload);
+                console.groupEnd();
+            }
+
+            document.querySelectorAll(`[atom-on-event="${data.event}"]`).forEach(element => {
+                const action = element.getAttribute('atom-action');
+                if (action) {
+                    const fakeEvent = new Event('click', { bubbles: true, cancelable: true });
+                    Object.defineProperty(fakeEvent, 'target', { writable: false, value: element });
+                    handleAction(fakeEvent);
+                }
+            });
+        } catch (e) {
+            console.error('[Engine] Failed to handle WebSocket message:', e);
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('[Engine] WebSocket connection closed. Reconnecting in 3 seconds...');
+        socketId = null;
+        setTimeout(initializeWebSocket, 3000);
+    };
+
+    ws.onerror = (error) => {
+        console.error('[Engine] WebSocket error:', error);
+        ws.close();
+    };
 }
+
+// --- Инициализация при загрузке страницы ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const supportedEvents = ['click', 'input', 'change', 'submit'];
@@ -188,13 +254,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.body.addEventListener('click', handleSpaNavigation, true);
     initializeWebSocket();
+
+    if (isDebugMode) {
+        console.log('✔️ [Engine] Client initialized in Debug Mode.');
+    }
 });
 
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.spaUrl) {
        const fakeLink = document.createElement('a');
        fakeLink.href = event.state.spaUrl;
-       const fakeEvent = new MouseEvent('click', { bubbles: false });
+       fakeLink.setAttribute('atom-link', 'spa'); // Помечаем, чтобы обработчик сработал
+       const fakeEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
        Object.defineProperty(fakeEvent, 'target', { writable: false, value: fakeLink });
        handleSpaNavigation(fakeEvent);
     }
