@@ -36,17 +36,25 @@ async function runCustomClientJsTest(appPath) {
 
     try {
         log('Starting server for integration test...');
-        
-        // Правильно получаем экземпляр сервера из возвращаемого объекта
         const serverComponents = createServer(appPath);
         server = serverComponents.server;
-
         await new Promise(resolve => server.listen(PORT, resolve));
         log(`Server listening on port ${PORT}`);
 
-        log('Fetching the main page...');
+        log('Fetching the main page using http.get...');
         const pageUrl = `http://localhost:${PORT}/`;
-        const html = await fetch(pageUrl).then(res => res.text());
+
+        const html = await new Promise((resolve, reject) => {
+            http.get(pageUrl, (res) => {
+                let rawData = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { rawData += chunk; });
+                res.on('end', () => resolve(rawData));
+            }).on('error', (e) => {
+                reject(new Error(`http.get failed: ${e.message}`));
+            });
+        });
+
         log('Received initial HTML.');
 
         const virtualConsole = new VirtualConsole();
@@ -62,7 +70,7 @@ async function runCustomClientJsTest(appPath) {
         });
 
         await new Promise(resolve => {
-            dom.window.addEventListener('load', resolve);
+            dom.window.addEventListener('load', resolve, { once: true });
         });
         log('JSDOM window "load" event fired.');
 
