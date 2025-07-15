@@ -4,9 +4,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{appName}}</title>
+    <title>{{ globals.appName }}</title>
     <style>
-        /* --- НОВЫЕ СТИЛИ ДЛЯ ШАПКИ --- */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+            display: flex; 
+            gap: 24px; 
+            background-color: #f0f2f5;
+            align-items: flex-start;
+            padding: 80px 24px 24px 24px;
+            margin: 0;
+        }
+        
         .app-header {
             width: 100%;
             display: flex;
@@ -15,53 +24,49 @@
             padding: 10px 24px;
             background-color: #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            position: fixed; /* Закрепляем шапку сверху */
+            position: fixed;
             top: 0;
             left: 0;
             box-sizing: border-box;
             z-index: 100;
         }
+        
         .app-header h1 {
             margin: 0;
             font-size: 1.5rem;
             color: #333;
         }
+        
         .user-info {
             display: flex;
             align-items: center;
             gap: 15px;
         }
+        
         .user-info span {
             font-weight: bold;
         }
+        
         .user-info a {
             color: #007bff;
             text-decoration: none;
             font-weight: 500;
         }
+        
         .user-info a:hover {
             text-decoration: underline;
         }
-        /* --- КОНЕЦ НОВЫХ СТИЛЕЙ --- */
-
-
-        /* Обновляем фон и основной шрифт */
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-            display: flex; 
-            gap: 24px; 
-            background-color: #f0f2f5;
-            align-items: flex-start;
-            /* --- ИЗМЕНЕНИЕ: Добавляем отступ сверху, чтобы контент не уезжал под шапку --- */
-            padding: 80px 24px 24px 24px;
-        }
+        
         button { 
             cursor: pointer; 
         }
+        
         ul { 
             padding-left: 0;
             list-style: none;
+            margin: 0;
         }
+        
         @media (max-width: 800px) {
             body {
                 flex-direction: column;
@@ -72,19 +77,33 @@
 </head>
 <body>
 
-    <!-- +++ НОВАЯ ШАПКА С КНОПКОЙ ВЫХОДА +++ -->
     <header class="app-header">
-        <h1>{{appName}}</h1>
+        <h1>{{ globals.appName }}</h1>
         <div class="user-info" atom-if="user.name">
             <span>{{user.name}} ({{user.role}})</span>
-            <!-- ИЗМЕНЕНИЕ: Добавляем atom-action, чтобы включить AJAX-логику -->
-            <a href="/auth/logout" atom-action="GET /auth/logout" atom-target="body">Выход</a>
+            
+            <!-- 
+              КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+              Удален атрибут atom-target="body".
+              Теперь у этой ссылки есть только atom-action. Это однозначно говорит
+              клиентскому скрипту: "Просто выполни этот экшен и жди ответа".
+              Клиент получит JSON с командой на редирект и выполнит его.
+            -->
+            <a href="/auth/logout" atom-action="GET /auth/logout">Выход</a>
+            
+            <!-- Демонстрационная SPA-ссылка. В реальном приложении здесь могут быть ссылки на другие разделы. -->
+            <a href="/login" atom-link="spa">На страницу входа (SPA)</a>
         </div>
     </header>
-    <!-- +++ КОНЕЦ НОВОГО БЛОКА +++ -->
 
-    <atom-inject into="positionsList"></atom-inject>
-    <atom-inject into="receipt"></atom-inject>
+    <div id="positionsList-container">
+        <atom-inject into="positionsList"></atom-inject>
+    </div>
+    
+    <div id="receipt-container">
+        <atom-inject into="receipt"></atom-inject>
+    </div>
 
+    <!-- Клиентский скрипт движка будет вставлен сюда автоматически рендерером -->
 </body>
 </html>

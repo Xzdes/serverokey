@@ -5,7 +5,7 @@ module.exports = {
     // --- Внутренний, переиспользуемый action для пересчета чека ---
     "recalculateReceiptLogic": {
         type: 'action',
-        internal: true, // Этот флаг означает, что роут не может быть вызван напрямую через HTTP
+        internal: true,
         steps: [
             { "set": "data.receipt.total", "to": "data.receipt.items.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0)" },
             { "set": "data.receipt.itemCount", "to": "data.receipt.items.reduce((sum, item) => sum + item.quantity, 0)" },
@@ -19,7 +19,6 @@ module.exports = {
       type: 'view',
       layout: 'mainLayout',
       reads: ['user', 'receipt', 'viewState', 'positions'],
-      // Указываем, какие компоненты в какие <atom-inject> вставлять
       inject: { 
         'positionsList': 'positionsList',
         'receipt': 'receipt' 
@@ -29,7 +28,6 @@ module.exports = {
     'GET /login': { 
       type: 'view', 
       layout: 'authLayout', 
-      // Для SPA-переходов контент страницы вставляется в плейсхолдер 'pageContent'
       inject: { 'pageContent': 'loginForm' } 
     },
     'GET /register': { 
@@ -47,13 +45,8 @@ module.exports = {
         { "set": "context.bcrypt", "to": "require('bcrypt')" },
         {
           "if": "context.userToLogin && context.bcrypt.compareSync(body.password, context.userToLogin.passwordHash)",
-          "then": [
-            { "auth:login": "context.userToLogin" },
-            { "client:redirect": "'/'" }
-          ],
-          "else": [
-            { "client:redirect": "'/login?error=1'" }
-          ]
+          "then": [ { "auth:login": "context.userToLogin" }, { "client:redirect": "'/'" } ],
+          "else": [ { "client:redirect": "'/login?error=1'" } ]
         }
       ]
     },
@@ -77,10 +70,10 @@ module.exports = {
         }
       ]
     },
+    // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     'GET /auth/logout': {
       type: 'action',
-      reads: ['user'],
-      auth: { required: true },
+      // УБРАНЫ `auth` и `reads`, чтобы избежать конфликта блокировок
       steps: [
         { "auth:logout": true },
         { "client:redirect": "'/login'" }
@@ -88,6 +81,7 @@ module.exports = {
     },
 
     // --- Action роуты (бизнес-логика кассы) ---
+    // (остальная часть файла без изменений)
     'POST /action/addItem': {
       type: 'action',
       reads: ['positions', 'receipt', 'user'],

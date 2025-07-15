@@ -1,4 +1,4 @@
-// core/renderer.js
+// packages/serverokey/core/renderer.js
 const Mustache = require('./mustache.js');
 const posthtml = require('posthtml');
 const csstree = require('css-tree');
@@ -59,23 +59,15 @@ class Renderer {
             }
         };
 
-        // *** ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ***
         return (tree) => {
-            // tree.match возвращает новое дерево, если узлы были изменены.
-            // Мы должны вернуть результат этого вызова.
             const newTree = tree.match({ attrs: { 'atom-if': true } }, (node) => {
                 const condition = node.attrs['atom-if'];
                 delete node.attrs['atom-if'];
-
                 if (!evaluateCondition(condition)) {
-                    // Возвращаем пустую строку, чтобы заменить узел.
-                    // posthtml заменит узел на то, что вернет эта функция.
                     return '';
                 }
-                // Если условие истинно, возвращаем измененный узел (без atom-if).
                 return node;
             });
-            // Возвращаем новое, измененное дерево.
             return newTree;
         };
     }
@@ -114,13 +106,14 @@ class Renderer {
         };
     }
 
+    // --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     _scopeCss(css, scopeId) {
         if (!css || !scopeId) return '';
         
         try {
             const ast = csstree.parse(css, {
                 onParseError: (error) => {
-                    console.warn(`[Renderer] CSS parse error for scope ${scopeId}: ${error.message}`);
+                    if (this.debug) console.warn(`[Renderer] CSS parse error for scope ${scopeId}: ${error.message}`);
                 }
             });
 
@@ -136,13 +129,13 @@ class Renderer {
             csstree.walk(ast, {
                 visit: 'Selector',
                 enter: (selector) => {
-                    if (!selector.children || selector.children.isEmpty) {
+                    // Используем фундаментальную проверку - есть ли у списка "голова" (первый элемент)
+                    if (!selector.children || selector.children.head === null) {
                         return;
                     }
-                    const firstChild = selector.children.head ? selector.children.head.data : null;
-                    if (!firstChild) {
-                        return;
-                    }
+                    
+                    const firstChild = selector.children.head.data;
+                    
                     if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
                         selector.children.replace(selector.children.head, {
                             type: 'ListItem',
@@ -150,10 +143,11 @@ class Renderer {
                         });
                         return;
                     }
+                    
                     const selectorName = firstChild.name ? String(firstChild.name).toLowerCase() : '';
                     if (
                         firstChild.type === 'Percentage' ||
-                        (firstChild.type === 'TypeSelector' && ['from', 'to', 'html', 'body'].includes(selectorName)) ||
+                        (firstChild.type === 'TypeSelector' && ['html', 'body'].includes(selectorName)) ||
                         (firstChild.type === 'PseudoClassSelector' && ['root'].includes(selectorName))
                     ) {
                         return;
@@ -166,7 +160,7 @@ class Renderer {
 
             return csstree.generate(ast);
         } catch (e) {
-            console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Error:`, e);
+            console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Returning original CSS. Error:`, e);
             return css;
         }
     }
@@ -227,13 +221,14 @@ class Renderer {
                         allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
                     }
                     if (scripts) allScripts.push(...scripts);
-                    injectedHtml[placeholderName] = `<div id="${componentName}-container">${html}</div>`;
+                    
+                    injectedHtml[placeholderName] = html;
                 }
             }
         }
 
         let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
-            return injectedHtml[placeholderName] || `<!-- Placeholder for ${placeholderName} -->`;
+            return injectedHtml[placeholderName] || `<!-- Placeholder '${placeholderName}' not filled -->`;
         });
         
         layoutHtml = Mustache.render(layoutHtml, finalRenderContext);
