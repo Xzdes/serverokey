@@ -3,19 +3,19 @@ const fs = require('fs/promises');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-// Пути к модулям
+// Очистка кэша для всех используемых модулей ядра
 const ACTION_ENGINE_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/action-engine.js');
-const ASSET_LOADER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js');
-const REQUEST_HANDLER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js');
-const CONNECTOR_MANAGER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/connector-manager.js');
-
-// Очистка кэша
 if (require.cache[ACTION_ENGINE_PATH]) delete require.cache[ACTION_ENGINE_PATH];
+const ASSET_LOADER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js');
 if (require.cache[ASSET_LOADER_PATH]) delete require.cache[ASSET_LOADER_PATH];
+const REQUEST_HANDLER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js');
 if (require.cache[REQUEST_HANDLER_PATH]) delete require.cache[REQUEST_HANDLER_PATH];
+const CONNECTOR_MANAGER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/connector-manager.js');
 if (require.cache[CONNECTOR_MANAGER_PATH]) delete require.cache[CONNECTOR_MANAGER_PATH];
 
-// Вспомогательные функции log и check (без изменений)
+/**
+ * Вспомогательная функция для логирования.
+ */
 function log(message, data) {
     console.log(`\n[LOG] ${message}`);
     if (data !== undefined) {
@@ -28,6 +28,9 @@ function log(message, data) {
     }
 }
 
+/**
+ * Вспомогательная функция для проверки утверждений.
+ */
 function check(condition, description, actual) {
     if (condition) {
         console.log(`  ✅ OK: ${description}`);
@@ -40,73 +43,120 @@ function check(condition, description, actual) {
     }
 }
 
-// Тестовые сценарии (без изменений)
-async function runSetStepTest(appPath) {
+/**
+ * Инициализирует ActionEngine. appPath предоставляется runner'ом.
+ */
+function setupActionEngine(appPath, initialContext, assetLoader = null, requestHandler = null) {
     const { ActionEngine } = require(ACTION_ENGINE_PATH);
-    const initialContext = { data: { cart: { items: [], total: 0 } }, body: { price: 150 } };
-    const engine = new ActionEngine(initialContext, appPath, null, null, true);
+    const engine = new ActionEngine(initialContext, appPath, assetLoader, requestHandler, true);
+    return engine;
+}
+
+
+// --- Тестовые Сценарии ---
+
+async function runSetStepTest(appPath) {
+    log('--- Test: runSetStepTest ---');
+    const initialContext = {
+        data: { cart: { items: [], total: 0 } },
+        body: { price: 150 }
+    };
+    const engine = setupActionEngine(appPath, initialContext);
+
     const steps = [
         { "set": "data.cart.total", "to": "Number(100)" },
-        { "set": "data.cart.items", "to": "[{ id: 1 }]" }
+        { "set": "context.newItem", "to": "{ id: 1, name: 'Product' }" },
+        { "set": "data.cart.items", "to": "data.cart.items.concat([context.newItem])" }
     ];
+
     await engine.run(steps);
     const finalContext = engine.context;
+    
     check(finalContext.data.cart.total === 100, 'Step "set" should assign a simple value.');
-    check(finalContext.data.cart.items.length === 1, 'Step "set" should assign array value.');
+    check(finalContext.data.cart.items.length === 1, 'Step "set" should add an item to the array.');
 }
 
 async function runIfThenElseStepTest(appPath) {
-    const { ActionEngine } = require(ACTION_ENGINE_PATH);
-    const initialContext = { data: { user: { role: 'admin' } } };
-    const engine = new ActionEngine(initialContext, appPath, null, null, true);
+    log('--- Test: runIfThenElseStepTest ---');
+    const initialContext = {
+        data: { user: { role: 'admin' } },
+        body: { action: 'deny' }
+    };
+    const engine = setupActionEngine(appPath, initialContext);
+
     const steps = [
-        { "if": "data.user.role === 'admin'", "then": [{ "set": "context.decision", "to": "'approved'" }] }
+        {
+            "if": "data.user.role === 'admin' && body.action === 'approve'",
+            "then": [ { "set": "context.decision", "to": "'approved'" } ],
+            "else": [ { "set": "context.decision", "to": "'denied'" } ]
+        }
     ];
+
     await engine.run(steps);
-    check(engine.context.context.decision === 'approved', 'Step "if/then" should be executed.');
+    const finalContext = engine.context;
+    
+    check(finalContext.context.decision === 'denied', 'Step "if/else" should be executed when condition is false.');
 }
 
 async function runRunStepTest(appPath) {
-    const { ActionEngine } = require(ACTION_ENGINE_PATH);
+    log('--- Test: runRunStepTest ---');
     const { AssetLoader } = require(ASSET_LOADER_PATH);
     const assetLoader = new AssetLoader(appPath, { components: {} });
+
     const initialContext = { data: {}, body: { a: 5, b: 10 } };
-    const engine = new ActionEngine(initialContext, appPath, assetLoader, null, true);
+    const engine = setupActionEngine(appPath, initialContext, assetLoader);
+
     const steps = [{ "run": "myTestAction" }];
     await engine.run(steps);
-    check(engine.context.data.sum === 15, 'Step "run" should execute code from an external file.');
+    const finalContext = engine.context;
+
+    check(finalContext.data.sum === 15, 'Step "run" should execute code from an external file.');
 }
 
 async function runActionRunStepTest(appPath) {
-    const { ActionEngine } = require(ACTION_ENGINE_PATH);
+    log('--- Test: runActionRunStepTest ---');
     const { AssetLoader } = require(ASSET_LOADER_PATH);
     const { RequestHandler } = require(REQUEST_HANDLER_PATH);
     const { ConnectorManager } = require(CONNECTOR_MANAGER_PATH);
-    const manifest = require(path.join(appPath, 'manifest.js'));
-    const connectorManager = new ConnectorManager(appPath, manifest);
-    const assetLoader = new AssetLoader(appPath, manifest);
-    const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, null, appPath);
-    const initialContext = { data: { cart: { items: [], total: 0 } }, body: { price: 50 } };
-    const engine = new ActionEngine(initialContext, appPath, assetLoader, requestHandler, true);
-    const routeConfig = manifest.routes['POST /addItem'];
+
+    const manifestInstance = require(path.join(appPath, 'manifest.js'));
+    const connectorManager = new ConnectorManager(appPath, manifestInstance);
+    const assetLoader = new AssetLoader(appPath, manifestInstance);
+    const requestHandler = new RequestHandler(manifestInstance, connectorManager, assetLoader, null, appPath);
+
+    const initialContext = {
+        data: { cart: { items: [{ price: 100 }], total: 100 } },
+        body: { price: 50 }
+    };
+    
+    const engine = setupActionEngine(appPath, initialContext, assetLoader, requestHandler);
+
+    const routeConfig = manifestInstance.routes['POST /addItem'];
     await engine.run(routeConfig.steps);
-    check(engine.context.data.cart.total === 50, 'Step "action:run" should have recalculated the total.');
+    const finalContext = engine.context;
+
+    check(finalContext.data.cart.items.length === 2, 'The item should be added to the cart.');
+    check(finalContext.data.cart.total === 150, 'Step "action:run" should have recalculated the total correctly.');
 }
+
 
 // --- Экспорт Тестов для Runner'а ---
 
 module.exports = {
     'ActionEngine: Step "set" should correctly modify context': {
-        options: {}, // не требует файлов
+        options: {
+            // Этот тест не требует файлов или манифеста, так как работает в памяти
+        },
         run: runSetStepTest
     },
     'ActionEngine: Step "if/then/else" should work correctly': {
-        options: {}, // не требует файлов
+        options: {},
         run: runIfThenElseStepTest
     },
     'ActionEngine: Step "run" should execute an external action file': {
         options: {
             files: {
+                // Runner создаст этот файл во временной папке 'app/actions/'
                 'app/actions/myTestAction.js': `module.exports = (ctx, body) => { ctx.data.sum = body.a + body.b; };`
             }
         },
@@ -114,7 +164,10 @@ module.exports = {
     },
     'ActionEngine: Step "action:run" should call another action': {
         options: {
+            // Runner создаст manifest.js с этим содержимым
             manifest: {
+                components: {},
+                connectors: {},
                 routes: {
                     "calculateTotal": {
                         "type": "action", "internal": true,

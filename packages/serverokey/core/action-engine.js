@@ -8,9 +8,14 @@ function evaluate(expression, context, appPath, debug = false) {
     if (typeof expression !== 'string') return expression;
 
     try {
-        const contextKeys = Object.keys(context);
-        const contextValues = Object.values(context);
-        const func = new Function(...contextKeys, 'require', `return ${expression};`);
+        // Мы передаем весь контекст как один объект `ctx`.
+        // Конструкция `with (ctx)` говорит JS: "При поиске переменных (таких как `data`, `body` и т.д.),
+        // сначала ищи их как свойства объекта `ctx`".
+        const func = new Function('ctx', 'require', `
+            with (ctx) {
+                return (${expression});
+            }
+        `);
         
         const smartRequire = (module) => {
             try { return require(module); } catch (e) {
@@ -21,10 +26,16 @@ function evaluate(expression, context, appPath, debug = false) {
                 throw e4;
             }}}}
         };
+        
+        // Добавляем zod в контекст, чтобы он был доступен внутри `with`
+        context.zod = z;
 
-        return func(...contextValues, smartRequire);
+        return func(context, smartRequire);
+
     } catch (error) {
         if (debug) {
+            // Это предупреждение будет появляться при реальных ошибках (синтаксических или ошибках времени выполнения).
+            // Доступ к `undefined.property` как раз является такой ошибкой.
             console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
         return undefined;
@@ -67,8 +78,8 @@ function httpGet(url) {
 
 class ActionEngine {
     constructor(context, appPath, assetLoader, requestHandler, debug = false) {
+        // Мы больше не добавляем zod здесь, так как он добавляется в `evaluate`
         this.context = JSON.parse(JSON.stringify(context));
-        this.context.zod = z;
         this.appPath = appPath;
         this.assetLoader = assetLoader;
         this.requestHandler = requestHandler;
