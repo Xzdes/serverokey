@@ -1,4 +1,5 @@
-// core/request-handler.js
+// packages/serverokey/core/request-handler.js
+
 const { URL, URLSearchParams } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -90,11 +91,41 @@ class RequestHandler {
                     data: dataFromReads,
                     user: user || null,
                 };
-                const html = await this.renderer.renderView(routeConfig, dataContext, url);
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
-            }
+                
+                // --- НАЧАЛО ИЗМЕНЕНИЯ ДЛЯ SPA ---
+                const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
-            if (routeConfig.type === 'action') {
+                if (isSpaRequest) {
+                    // Это SPA-запрос, отдаем JSON с нужными частями
+                    const injectedParts = {};
+                    if(routeConfig.inject) {
+                        for (const placeholder in routeConfig.inject) {
+                            const componentName = routeConfig.inject[placeholder];
+                            const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
+                            injectedParts[placeholder] = { html, styles, scripts };
+                        }
+                    }
+
+                    // Получаем заголовок для страницы из конфигурации компонента
+                    const componentNameForTitle = routeConfig.inject?.pageContent || routeConfig.layout;
+                    const componentConfig = this.manifest.components[componentNameForTitle];
+                    const pageTitle = (typeof componentConfig === 'object' && componentConfig.title)
+                        ? componentConfig.title
+                        : (this.manifest.globals?.appName || 'Serverokey App');
+
+
+                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({
+                        title: pageTitle,
+                        injectedParts: injectedParts
+                    }));
+                } else {
+                    // Это обычный запрос (первая загрузка), рендерим всю страницу
+                    const html = await this.renderer.renderView(routeConfig, dataContext, url);
+                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
+                }
+                // --- КОНЕЦ ИЗМЕНЕНИЯ ДЛЯ SPA ---
+
+            } else if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
                 const socketId = req.headers['x-socket-id'] || null;
                 await this.runAction(routeKey, { user, body, socketId }, res, this.debug);
@@ -154,8 +185,7 @@ class RequestHandler {
             const responsePayload = {};
             if (internalActions.redirectUrl) {
                 responsePayload.redirectUrl = internalActions.redirectUrl;
-            }
-            if (routeConfig.update && !internalActions.redirectUrl) {
+            } else if (routeConfig.update) {
                  const currentUrl = res.req ? new URL(res.req.url, `http://${res.req.headers.host}`) : null;
                  const componentRenderContext = { data: finalContext.data, user: finalContext.user };
                  const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);

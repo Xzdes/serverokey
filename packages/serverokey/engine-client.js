@@ -1,4 +1,4 @@
-// s:\serverokey\packages\serverokey\core\engine-client.js
+// packages/serverokey/engine-client.js
 
 const isDebugMode = document.body.hasAttribute('data-debug-mode');
 let socketId = null;
@@ -69,7 +69,6 @@ async function handleAction(event) {
     const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
     
     // Если тип события не совпадает с требуемым, выходим.
-    // Исключение: для сабмита формы, событие submit может быть инициировано кликом по кнопке type="submit"
     if (event.type !== requiredEventType && !(event.type === 'click' && event.target.type === 'submit' && requiredEventType === 'submit')) {
         return;
     }
@@ -96,7 +95,6 @@ async function handleAction(event) {
     };
 
     if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
-        // Тело запроса всегда формируем от `element`, а не `event.target`
         fetchOptions.body = getActionBody(element);
     }
 
@@ -156,6 +154,74 @@ async function handleAction(event) {
     }
 }
 
+// --- НОВАЯ ФУНКЦИЯ ДЛЯ SPA-НАВИГАЦИИ ---
+async function handleSpaNavigation(event) {
+    // Ищем ближайшую SPA-ссылку от элемента, по которому кликнули
+    const link = event.target.closest('a[atom-link="spa"]');
+    if (!link) {
+        return;
+    }
+
+    // Предотвращаем стандартный переход по ссылке
+    event.preventDefault();
+    const targetUrl = new URL(link.href);
+
+    // Если мы уже на этой странице, ничего не делаем
+    if (window.location.pathname === targetUrl.pathname && window.location.search === targetUrl.search) {
+        return;
+    }
+
+    try {
+        const response = await fetch(targetUrl.href, {
+            headers: {
+                'X-Requested-With': 'ServerokeySPA'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`SPA navigation request failed with status: ${response.status}`);
+        }
+
+        const payload = await response.json();
+
+        if (isDebugMode) {
+            console.groupCollapsed(`[DEBUG] SPA Navigation to: ${targetUrl.href}`);
+            console.log('Payload:', payload);
+            console.groupEnd();
+        }
+
+        // Обновляем заголовок страницы
+        document.title = payload.title || document.title;
+        
+        // Обновляем все контейнеры, для которых пришел контент
+        for (const placeholder in payload.injectedParts) {
+            const container = document.getElementById(`${placeholder}-container`);
+            if (container) {
+                const part = payload.injectedParts[placeholder];
+                if(part.styles) updateStyles(placeholder, part.styles);
+                container.innerHTML = part.html;
+                if(part.scripts) executeScripts(part.scripts);
+            } else {
+                if (isDebugMode) {
+                    console.warn(`[DEBUG] SPA Navigation: container for placeholder "${placeholder}" not found.`);
+                }
+            }
+        }
+
+        // Обновляем URL в адресной строке браузера, только если он изменился
+        if (window.location.href !== targetUrl.href) {
+            history.pushState({ spaUrl: targetUrl.href }, payload.title, targetUrl.href);
+        }
+
+    } catch (error) {
+        console.error('[Engine] SPA Navigation failed:', error);
+        // Если что-то пошло не так (например, сервер вернул ошибку 500), 
+        // просто переходим по ссылке стандартным способом
+        window.location.href = targetUrl.href;
+    }
+}
+
+
 function initializeWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
@@ -163,7 +229,7 @@ function initializeWebSocket() {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        console.log('[Engine] WebSocket connection established.');
+        if (isDebugMode) console.log('[Engine] WebSocket connection established.');
     };
 
     ws.onmessage = (message) => {
@@ -171,7 +237,7 @@ function initializeWebSocket() {
             const data = JSON.parse(message.data);
             if (data.type === 'socket_id_assigned') {
                 socketId = data.id;
-                console.log(`[Engine] WebSocket ID assigned: ${socketId}`);
+                if (isDebugMode) console.log(`[Engine] WebSocket ID assigned: ${socketId}`);
                 document.querySelectorAll('[atom-socket]').forEach(element => {
                     const channelName = element.getAttribute('atom-socket');
                     if (channelName) {
@@ -214,14 +280,37 @@ function initializeWebSocket() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Регистрируем все существующие обработчики для atom-action
     const supportedEvents = ['click', 'input', 'change', 'submit'];
     supportedEvents.forEach(eventType => {
         document.body.addEventListener(eventType, handleAction, true);
     });
 
+    // Добавляем обработчик для SPA-ссылок, который будет перехватывать клики
+    document.body.addEventListener('click', handleSpaNavigation, true);
+
     initializeWebSocket();
 
     if (isDebugMode) {
         console.log('✔️ [Engine] Client initialized in Debug Mode.');
+    }
+});
+
+// Добавляем обработчик для кнопок "вперед/назад" в браузере
+window.addEventListener('popstate', (event) => {
+    // Если в истории есть наше состояние (мы перешли на эту страницу через SPA),
+    // загружаем контент для этого URL
+    if (event.state && event.state.spaUrl) {
+       // Создаем "фальшивое" событие клика по ссылке, чтобы переиспользовать нашу логику.
+       // Это более надежно, чем дублировать fetch-запрос.
+       const fakeLink = document.createElement('a');
+       fakeLink.href = event.state.spaUrl;
+       fakeLink.setAttribute('atom-link', 'spa'); // Помечаем как SPA-ссылку
+       
+       const fakeEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+       // Имитируем, что клик произошел именно по нашей "фальшивой" ссылке
+       Object.defineProperty(fakeEvent, 'target', { writable: false, value: fakeLink });
+
+       handleSpaNavigation(fakeEvent);
     }
 });
