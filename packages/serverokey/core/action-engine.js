@@ -38,6 +38,8 @@ function evaluate(expression, context, appPath, debug = false) {
             // Доступ к `undefined.property` как раз является такой ошибкой.
             console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
+        // Если происходит ошибка (как `Cannot read...`), мы возвращаем undefined.
+        // Это и есть наше "прощающее" поведение.
         return undefined;
     }
 }
@@ -78,7 +80,6 @@ function httpGet(url) {
 
 class ActionEngine {
     constructor(context, appPath, assetLoader, requestHandler, debug = false) {
-        // Мы больше не добавляем zod здесь, так как он добавляется в `evaluate`
         this.context = JSON.parse(JSON.stringify(context));
         this.appPath = appPath;
         this.assetLoader = assetLoader;
