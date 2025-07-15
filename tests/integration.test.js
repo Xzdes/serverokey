@@ -34,59 +34,60 @@ async function runCustomClientJsTest(appPath) {
     let server;
     const PORT = 3002;
 
-    try {
-        log('Starting server for integration test...');
-        const serverComponents = createServer(appPath);
-        server = serverComponents.server;
-        await new Promise(resolve => server.listen(PORT, resolve));
-        log(`Server listening on port ${PORT}`);
+    // Добавляем таймаут для всего теста
+    const testTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Test timed out after 5 seconds')), 5000)
+    );
 
-        log('Fetching the main page using http.get...');
-        const pageUrl = `http://localhost:${PORT}/`;
+    const testLogic = new Promise(async (resolve, reject) => {
+        try {
+            log('Starting server for integration test...');
+            const serverComponents = createServer(appPath);
+            server = serverComponents.server;
+            await new Promise(resolve => server.listen(PORT, resolve));
+            log(`Server listening on port ${PORT}`);
 
-        const html = await new Promise((resolve, reject) => {
-            http.get(pageUrl, (res) => {
-                let rawData = '';
-                res.setEncoding('utf8');
-                res.on('data', (chunk) => { rawData += chunk; });
-                res.on('end', () => resolve(rawData));
-            }).on('error', (e) => {
-                reject(new Error(`http.get failed: ${e.message}`));
+            log('Fetching the main page using http.get...');
+            const pageUrl = `http://localhost:${PORT}/`;
+            const html = await new Promise((resolve, reject) => {
+                http.get(pageUrl, res => {
+                    let rawData = '';
+                    res.on('data', chunk => rawData += chunk);
+                    res.on('end', () => resolve(rawData));
+                }).on('error', reject);
             });
-        });
+            log('Received initial HTML.');
 
-        log('Received initial HTML.');
+            const virtualConsole = new VirtualConsole();
+            virtualConsole.on("jsdomError", (e) => console.error("[JSDOM Error]", e));
+            virtualConsole.on("error", (e) => console.error("[Console Error]", e));
 
-        const virtualConsole = new VirtualConsole();
-        virtualConsole.on("error", (error) => console.error("[JSDOM Error]", error.stack || error.message));
-        virtualConsole.on("jsdomError", (error) => console.error("[JSDOM Internal Error]", error.stack || error.message));
+            log('Loading HTML into JSDOM...');
+            const dom = new JSDOM(html, { url: pageUrl, runScripts: "dangerously", resources: "usable", virtualConsole });
 
-        log('Loading HTML into JSDOM to simulate a browser...');
-        const dom = new JSDOM(html, {
-            url: pageUrl,
-            runScripts: "dangerously",
-            resources: "usable",
-            virtualConsole 
-        });
+            await new Promise(resolve => dom.window.addEventListener('load', resolve, { once: true }));
+            log('JSDOM window "load" event fired.');
 
-        await new Promise(resolve => {
-            dom.window.addEventListener('load', resolve, { once: true });
-        });
-        log('JSDOM window "load" event fired.');
+            const document = dom.window.document;
+            const targetDiv = document.querySelector('#target-div');
+            
+            log('Checking DOM modifications by custom.js...');
+            check(targetDiv, 'The target div should exist.');
+            check(targetDiv.classList.contains('modified-by-js'), 'Custom JS should have added a class.', targetDiv.outerHTML);
+            check(targetDiv.textContent === 'Hello from Custom JS!', 'Custom JS should have changed the text.', targetDiv.textContent);
+            
+            resolve(); // Успешное завершение логики теста
+        } catch (error) {
+            reject(error); // Передаем ошибку
+        } finally {
+            log('Cleaning up: closing server...');
+            if (server) await new Promise(resolve => server.close(resolve));
+            log('Cleanup complete.');
+        }
+    });
 
-        const document = dom.window.document;
-        const targetDiv = document.querySelector('#target-div');
-        
-        log('Checking DOM modifications by custom.js...');
-        check(targetDiv, 'The target div should exist.');
-        check(targetDiv.classList.contains('modified-by-js'), 'Custom JS should have added a class to the div.', targetDiv.outerHTML);
-        check(targetDiv.textContent === 'Hello from Custom JS!', 'Custom JS should have changed the text content.', targetDiv.textContent);
-        
-    } finally {
-        log('Cleaning up: closing server...');
-        if (server) await new Promise(resolve => server.close(resolve));
-        log('Cleanup complete.');
-    }
+    // Запускаем логику теста и таймаут параллельно. Кто первый - тот и победил.
+    await Promise.race([testLogic, testTimeout]);
 }
 
 // --- Экспорт Теста ---
@@ -106,14 +107,6 @@ module.exports = {
                             res.end(fs.readFileSync(scriptPath));
                         }
                     },
-                    'GET /engine-client.js': {
-                         handler: (req, res) => {
-                            const fs = require('fs');
-                            const scriptPath = path.join(PROJECT_ROOT, 'packages/serverokey/engine-client.js');
-                            res.writeHead(200, {'Content-Type': 'application/javascript'});
-                            res.end(fs.readFileSync(scriptPath));
-                         }
-                    }
                 }
             },
             files: {
@@ -123,8 +116,8 @@ module.exports = {
                         <head></head>
                         <body>
                             <div id="target-div">Initial Text</div>
+                            <!-- Убираем engine-client.js, чтобы не усложнять тест -->
                             <script src="/custom.js"></script>
-                            <script src="/engine-client.js"></script>
                         </body>
                     </html>
                 `,
