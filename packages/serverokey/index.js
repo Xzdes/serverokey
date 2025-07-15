@@ -30,7 +30,17 @@ function createServer(appPath, options = {}) {
   requestHandler.setSocketEngine(socketEngine);
 
   console.log('[Serverokey] Engine initialized.');
-  return server;
+
+  // Возвращаем объект, содержащий все ключевые компоненты.
+  // Это позволяет использовать их в тестах или при встраивании Serverokey в другие системы.
+  return {
+      server,
+      requestHandler,
+      socketEngine,
+      connectorManager,
+      assetLoader,
+      renderer
+  };
 }
 
 module.exports = { createServer };

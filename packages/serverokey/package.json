@@ -37,5 +37,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Xzdes/serverokey.git"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
   }
 }

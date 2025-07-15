@@ -1,16 +1,15 @@
 // packages/kassa-app-example/server.js
-require('dotenv').config(); // Для будущей работы с переменными окружения (например, для БД)
+require('dotenv').config();
 const { createServer } = require('serverokey');
 
 const PORT = process.env.PORT || 3000;
 const appPath = __dirname;
 
 try {
-  // --- НОВЫЙ БЛОК: Проверяем наличие флага --debug ---
   const debugMode = process.argv.includes('--debug');
 
-  // Передаем опцию debug в ядро
-  const server = createServer(appPath, { debug: debugMode });
+  // Деструктурируем ответ от createServer, чтобы получить только экземпляр сервера.
+  const { server } = createServer(appPath, { debug: debugMode });
 
   server.listen(PORT, () => {
     console.log(`🚀 Kassa App running on http://localhost:${PORT}`);
