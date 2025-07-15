@@ -8,12 +8,20 @@
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
             background-color: #f0f2f5; 
+            margin: 0; 
+        }
+
+        /* --- НОВЫЕ СТИЛИ ДЛЯ ГЛАВНОГО КОНТЕЙНЕРА --- */
+        /* Используем flexbox для центрирования карточки входа */
+        main#pageContent-container {
             display: flex; 
             justify-content: center; 
             align-items: center; 
-            height: 100vh; 
-            margin: 0; 
+            min-height: 100vh; /* Занимает всю высоту экрана */
+            padding: 24px;
+            box-sizing: border-box;
         }
+
         .auth-card { 
             background: white; 
             padding: 40px; 
@@ -22,21 +30,25 @@
             width: 100%; 
             max-width: 400px; 
         }
+        
         .auth-card h2 { 
             text-align: center; 
             margin-top: 0; 
             margin-bottom: 24px;
             color: #333; 
         }
+        
         .form-group { 
             margin-bottom: 20px; 
         }
+        
         .form-group label { 
             display: block; 
             margin-bottom: 5px; 
             font-weight: bold; 
             color: #555;
         }
+        
         .form-group input { 
             width: 100%; 
             padding: 10px; 
@@ -44,6 +56,7 @@
             border-radius: 4px; 
             box-sizing: border-box; 
         }
+        
         .form-group button { 
             width: 100%; 
             padding: 12px; 
@@ -55,20 +68,25 @@
             cursor: pointer;
             transition: background-color 0.2s;
         }
+        
         .form-group button:hover { 
             background-color: #0056b3; 
         }
+        
         .links { 
             text-align: center; 
             margin-top: 20px; 
         }
+        
         .links a { 
             color: #007bff; 
             text-decoration: none; 
         }
+        
         .links a:hover {
             text-decoration: underline;
         }
+        
         .error { 
             color: #d93025; 
             background-color: #f8d7da; 
@@ -81,18 +99,24 @@
     </style>
 </head>
 <body>
-    <div class="auth-card">
-        <!--
-          ИЗМЕНЕНИЕ ДЛЯ SPA:
-          Этот контейнер теперь имеет ID. Когда пользователь будет кликать
-          на SPA-ссылку "Регистрация" или "Вход", engine-client.js найдет
-          этот контейнер по ID и заменит его содержимое на новую форму,
-          которую пришлет сервер.
-        -->
-        <div id="pageContent-container">
-            <atom-inject into="pageContent"></atom-inject>
+    <!--
+      КЛЮЧЕВОЕ ИЗМЕНЕНИЕ:
+      Используем тот же ID 'pageContent-container', что и в главном макете.
+      Теперь при переходе с главной страницы сюда, скрипт заменит
+      содержимое <main> на этот блок.
+    -->
+    <main id="pageContent-container">
+        <div class="auth-card">
+            <!-- 
+                Этот плейсхолдер теперь внутри главного контейнера.
+                Сюда будет вставлена либо форма входа, либо форма регистрации.
+             -->
+            <div id="pageContent-container">
+                <atom-inject into="pageContent"></atom-inject>
+            </div>
         </div>
-    </div>
-    <!-- Клиентский скрипт будет вставлен сюда автоматически -->
+    </main>
+
+    <!-- Клиентский скрипт движка -->
 </body>
 </html>

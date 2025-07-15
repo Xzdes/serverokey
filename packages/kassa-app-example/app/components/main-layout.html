@@ -7,13 +7,10 @@
     <title>{{ globals.appName }}</title>
     <style>
         body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-            display: flex; 
-            gap: 24px; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
             background-color: #f0f2f5;
-            align-items: flex-start;
-            padding: 80px 24px 24px 24px;
             margin: 0;
+            padding-top: 60px; /* Фиксированный отступ под шапку */
         }
         
         .app-header {
@@ -56,19 +53,19 @@
         .user-info a:hover {
             text-decoration: underline;
         }
-        
-        button { 
-            cursor: pointer; 
-        }
-        
-        ul { 
-            padding-left: 0;
-            list-style: none;
-            margin: 0;
+
+        /* --- НОВЫЕ СТИЛИ ДЛЯ ГЛАВНОГО КОНТЕЙНЕРА --- */
+        main#pageContent-container {
+            display: flex;
+            flex-grow: 1;
+            gap: 24px;
+            padding: 24px;
+            align-items: flex-start;
+            box-sizing: border-box;
         }
         
         @media (max-width: 800px) {
-            body {
+            main#pageContent-container {
                 flex-direction: column;
                 align-items: stretch; 
             }
@@ -81,29 +78,31 @@
         <h1>{{ globals.appName }}</h1>
         <div class="user-info" atom-if="user.name">
             <span>{{user.name}} ({{user.role}})</span>
-            
-            <!-- 
-              КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
-              Удален атрибут atom-target="body".
-              Теперь у этой ссылки есть только atom-action. Это однозначно говорит
-              клиентскому скрипту: "Просто выполни этот экшен и жди ответа".
-              Клиент получит JSON с командой на редирект и выполнит его.
-            -->
             <a href="/auth/logout" atom-action="GET /auth/logout">Выход</a>
-            
-            <!-- Демонстрационная SPA-ссылка. В реальном приложении здесь могут быть ссылки на другие разделы. -->
             <a href="/login" atom-link="spa">На страницу входа (SPA)</a>
         </div>
     </header>
 
-    <div id="positionsList-container">
-        <atom-inject into="positionsList"></atom-inject>
-    </div>
-    
-    <div id="receipt-container">
-        <atom-inject into="receipt"></atom-inject>
-    </div>
+    <!--
+      КЛЮЧЕВОЕ ИЗМЕНЕНИЕ:
+      Мы создаем единый контейнер для всего контента страницы.
+      При SPA-переходе engine-client.js будет полностью заменять
+      содержимое этого тега <main>.
+    -->
+    <main id="pageContent-container">
+        <!-- 
+          Внутри этого контейнера мы размещаем части текущей страницы.
+          При первой загрузке сюда будет вставлен HTML кассы.
+          При SPA-переходе на /login сюда будет вставлен HTML формы входа.
+        -->
+        <div id="positionsList-container">
+            <atom-inject into="positionsList"></atom-inject>
+        </div>
+        <div id="receipt-container">
+            <atom-inject into="receipt"></atom-inject>
+        </div>
+    </main>
 
-    <!-- Клиентский скрипт движка будет вставлен сюда автоматически рендерером -->
+    <!-- Клиентский скрипт движка будет добавлен сюда автоматически рендерером -->
 </body>
 </html>
