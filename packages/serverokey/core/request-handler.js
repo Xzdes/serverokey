@@ -48,6 +48,20 @@ class RequestHandler {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
         
+        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ПРОВЕРКА СИСТЕМНОГО ФАЙЛА В САМОМ НАЧАЛЕ ---
+        // Этот блок должен стоять ПЕРЕД любой другой логикой маршрутизации.
+        if (routeKey === 'GET /engine-client.js') {
+            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
+            try {
+                const scriptContent = fs.readFileSync(clientScriptPath);
+                res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(scriptContent);
+            } catch (error) {
+                console.error(`[Engine] CRITICAL: Could not read engine-client.js file.`, error);
+                res.writeHead(500).end('Internal Server Error');
+            }
+            return; // Завершаем обработку
+        }
+
         let user = null;
         if (this.authEngine) {
             const session = await this.authEngine.getSession(req);
@@ -96,7 +110,6 @@ class RequestHandler {
                             if (componentName) {
                                 const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
                                 spaContentHtml += `<div id="${placeholder}-container">${html}</div>`;
-                                // --- ИСПРАВЛЕНИЕ: Добавляем стили в массив для отправки ---
                                 if (styles) allStyles.push({ name: componentName, css: styles });
                                 if (scripts) allScripts.push(...scripts);
                             }
@@ -112,7 +125,7 @@ class RequestHandler {
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({
                         title: pageTitle,
                         content: spaContentHtml,
-                        styles: allStyles, // <-- Отправляем стили клиенту
+                        styles: allStyles,
                         scripts: allScripts
                     }));
 

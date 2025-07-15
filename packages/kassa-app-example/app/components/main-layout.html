@@ -1,4 +1,5 @@
 <!-- packages/kassa-app-example/app/components/main-layout.html -->
+<!-- packages/kassa-app-example/app/components/main-layout.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -78,23 +79,19 @@
         <h1>{{ globals.appName }}</h1>
         <div class="user-info" atom-if="user.name">
             <span>{{user.name}} ({{user.role}})</span>
-            <a href="/auth/logout" atom-action="GET /auth/logout">Выход</a>
+            
+            <!-- 
+              КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+              Убираем atom-action. Теперь это обычная ссылка.
+              Браузер просто перейдет по адресу /auth/logout.
+            -->
+            <a href="/auth/logout">Выход</a>
+            
             <a href="/login" atom-link="spa">На страницу входа (SPA)</a>
         </div>
     </header>
 
-    <!--
-      КЛЮЧЕВОЕ ИЗМЕНЕНИЕ:
-      Мы создаем единый контейнер для всего контента страницы.
-      При SPA-переходе engine-client.js будет полностью заменять
-      содержимое этого тега <main>.
-    -->
     <main id="pageContent-container">
-        <!-- 
-          Внутри этого контейнера мы размещаем части текущей страницы.
-          При первой загрузке сюда будет вставлен HTML кассы.
-          При SPA-переходе на /login сюда будет вставлен HTML формы входа.
-        -->
         <div id="positionsList-container">
             <atom-inject into="positionsList"></atom-inject>
         </div>
@@ -103,6 +100,6 @@
         </div>
     </main>
 
-    <!-- Клиентский скрипт движка будет добавлен сюда автоматически рендерером -->
+    <!-- Клиентский скрипт движка -->
 </body>
 </html>

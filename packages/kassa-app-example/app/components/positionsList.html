@@ -1,4 +1,4 @@
-<!-- app/components/positionsList.html -->
+<!-- packages/kassa-app-example/app/components/positionsList.html -->
 <div>
   <h3>Товары</h3>
 
@@ -17,20 +17,55 @@
 
   <form>
     <ul>
-      <!-- ИЗМЕНЕНИЕ: Добавляем data. к viewState.filtered -->
-      {{#data.viewState.filtered}}
-      <li>
-        <span>{{name}} ({{price}} руб.)</span>
-        <button
-          atom-action="POST /action/addItem"
-          atom-target="#receipt-container"
-          name="id"
-          value="{{id}}"
-        >
-          Добавить
-        </button>
-      </li>
-      {{/data.viewState.filtered}}
+      <!-- 
+        КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЛОГИКИ:
+        Мы вводим два блока отображения.
+      -->
+
+      <!-- БЛОК 1: Отображается, если нет поискового запроса (начальная загрузка). -->
+      <!-- Он итерирует по полному списку товаров из data.positions.items. -->
+      {{^data.viewState.query}}
+        {{#data.positions.items}}
+        <li>
+          <span>{{name}} ({{price}} руб.)</span>
+          <button
+            atom-action="POST /action/addItem"
+            atom-target="#receipt-container"
+            name="id"
+            value="{{id}}"
+          >
+            Добавить
+          </button>
+        </li>
+        {{/data.positions.items}}
+      {{/data.viewState.query}}
+
+
+      <!-- БЛОК 2: Отображается, только если есть поисковый запрос. -->
+      <!-- Он итерирует по отфильтрованному списку из data.viewState.filtered. -->
+      {{#data.viewState.query}}
+        {{#data.viewState.filtered}}
+        <li>
+          <span>{{name}} ({{price}} руб.)</span>
+          <button
+            atom-action="POST /action/addItem"
+            atom-target="#receipt-container"
+            name="id"
+            value="{{id}}"
+          >
+            Добавить
+          </button>
+        </li>
+        {{/data.viewState.filtered}}
+
+        <!-- Сообщение, если по запросу ничего не найдено -->
+        {{^data.viewState.filtered}}
+          <li>
+            <span>По запросу "{{data.viewState.query}}" ничего не найдено.</span>
+          </li>
+        {{/data.viewState.filtered}}
+      {{/data.viewState.query}}
+      
     </ul>
   </form>
 </div>

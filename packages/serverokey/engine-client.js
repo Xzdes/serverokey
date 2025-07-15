@@ -3,11 +3,6 @@
 const isDebugMode = document.body.hasAttribute('data-debug-mode');
 let socketId = null;
 
-/**
- * Собирает данные из формы или с элемента для отправки на сервер.
- * @param {HTMLElement} element - Элемент, инициировавший действие.
- * @returns {string} - JSON-строка с данными.
- */
 function getActionBody(element) {
     const form = element.closest('form');
     const data = {};
@@ -17,19 +12,12 @@ function getActionBody(element) {
             data[key] = value;
         }
     }
-    // Для кнопок и инпутов с name/value, добавляем их в тело запроса.
-    // Это важно для кнопок, передающих, например, ID элемента.
     if (element.name && element.value) {
         data[element.name] = element.value;
     }
     return JSON.stringify(data);
 }
 
-/**
- * Динамически создает или обновляет тег <style> для компонента в <head>.
- * @param {string} componentName - Имя компонента, которому принадлежат стили.
- * @param {string} newStyles - Новый CSS-код.
- */
 function updateStyles(componentName, newStyles) {
     if (!newStyles || !componentName) return;
     const styleId = `style-for-${componentName}`;
@@ -40,16 +28,11 @@ function updateStyles(componentName, newStyles) {
         styleTag.setAttribute('data-component-name', componentName);
         document.head.appendChild(styleTag);
     }
-    // Обновляем стили, только если они изменились, чтобы избежать лишних перерисовок.
     if (styleTag.textContent !== newStyles) {
         styleTag.textContent = newStyles;
     }
 }
 
-/**
- * Выполняет клиентские скрипты, присланные с сервера.
- * @param {Array} scripts - Массив объектов скриптов.
- */
 function executeScripts(scripts) {
     if (!scripts || !Array.isArray(scripts)) return;
     scripts.forEach(scriptInfo => {
@@ -61,10 +44,6 @@ function executeScripts(scripts) {
     });
 }
 
-/**
- * Обрабатывает все взаимодействия с атрибутом `atom-action`.
- * @param {Event} event - DOM-событие.
- */
 async function handleAction(event) {
     const element = event.target.closest('[atom-action]');
     if (!element) return;
@@ -72,9 +51,10 @@ async function handleAction(event) {
     const form = element.closest('form');
     if (form && form.hasAttribute('data-native-submit')) return;
 
-    const requiredEventType = element.getAttribute('atom-event') || (form ? 'submit' : 'click');
+    const requiredEventType = element.getAttribute('atom-event') || (element.tagName === 'FORM' ? 'submit' : 'click');
+    
     if (event.type !== requiredEventType) {
-        if (!(event.type === 'click' && element.type === 'submit' && requiredEventType === 'submit')) {
+        if (!(event.type === 'click' && element.type === 'submit' && element.closest('form')?.getAttribute('atom-action'))) {
              return;
         }
     }
@@ -139,10 +119,6 @@ async function handleAction(event) {
     }
 }
 
-/**
- * Обрабатывает клики по SPA-ссылкам с атрибутом `atom-link="spa"`.
- * @param {Event} event - DOM-событие.
- */
 async function handleSpaNavigation(event) {
     const link = event.target.closest('a[atom-link="spa"]');
     if (!link) return;
@@ -163,9 +139,31 @@ async function handleSpaNavigation(event) {
 
         document.title = payload.title || document.title;
         
+        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ОЧИСТКА СТАРЫХ СТИЛЕЙ ---
+        // 1. Собираем имена всех стилей, которые есть на странице СЕЙЧАС.
+        const existingStyleNames = new Set();
+        document.querySelectorAll('style[data-component-name]').forEach(tag => {
+            existingStyleNames.add(tag.getAttribute('data-component-name'));
+        });
+
+        // 2. Собираем имена всех стилей, которые пришли от сервера.
+        const newStyleNames = new Set((payload.styles || []).map(s => s.name));
+
+        // 3. Обновляем/добавляем новые стили.
         (payload.styles || []).forEach(styleInfo => {
             updateStyles(styleInfo.name, styleInfo.css);
         });
+
+        // 4. Удаляем те старые стили, которых нет в новом ответе.
+        existingStyleNames.forEach(oldName => {
+            if (!newStyleNames.has(oldName)) {
+                const oldStyleTag = document.getElementById(`style-for-${oldName}`);
+                if (oldStyleTag) {
+                    oldStyleTag.remove();
+                }
+            }
+        });
+        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         const mainContainer = document.getElementById('pageContent-container');
         if (mainContainer && payload.content !== undefined) {
@@ -186,9 +184,6 @@ async function handleSpaNavigation(event) {
     }
 }
 
-/**
- * Инициализирует WebSocket-соединение.
- */
 function initializeWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
@@ -245,8 +240,6 @@ function initializeWebSocket() {
     };
 }
 
-// --- Инициализация при загрузке страницы ---
-
 document.addEventListener('DOMContentLoaded', () => {
     const supportedEvents = ['click', 'input', 'change', 'submit'];
     supportedEvents.forEach(eventType => {
@@ -264,7 +257,7 @@ window.addEventListener('popstate', (event) => {
     if (event.state && event.state.spaUrl) {
        const fakeLink = document.createElement('a');
        fakeLink.href = event.state.spaUrl;
-       fakeLink.setAttribute('atom-link', 'spa'); // Помечаем, чтобы обработчик сработал
+       fakeLink.setAttribute('atom-link', 'spa');
        const fakeEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
        Object.defineProperty(fakeEvent, 'target', { writable: false, value: fakeLink });
        handleSpaNavigation(fakeEvent);
