@@ -3,7 +3,7 @@
     
     <p class="error" atom-if="url.query.error">Этот логин уже занят или произошла ошибка.</p>
     
-    <!-- ИЗМЕНЕНИЕ: Добавляем atom-action на форму -->
+    <!-- ИЗМЕНЕНИЕ: Добавляем atom-action на форму для SPA-поведения -->
     <form action="/auth/register" method="POST" atom-action="POST /auth/register">
         <div class="form-group">
             <label for="name">Имя</label>
@@ -22,6 +22,6 @@
         </div>
     </form>
      <div class="links">
-        <a href="/login">У меня уже есть аккаунт</a>
+        <a href="/login" atom-link="spa">У меня уже есть аккаунт</a>
     </div>
 </div>

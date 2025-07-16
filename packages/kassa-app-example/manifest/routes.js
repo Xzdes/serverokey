@@ -1,8 +1,5 @@
 // packages/kassa-app-example/manifest/routes.js
-// Этот файл описывает все маршруты и бизнес-логику приложения.
-
 module.exports = {
-    // --- Внутренний, переиспользуемый action для пересчета чека ---
     "recalculateReceiptLogic": {
         type: 'action',
         internal: true,
@@ -14,29 +11,35 @@ module.exports = {
         ]
     },
 
- // --- View роуты (отвечают за отображение страниц) ---
     'GET /': {
       type: 'view',
       layout: 'mainLayout',
       reads: ['user', 'receipt', 'viewState', 'positions'],
       inject: { 
-        'positionsList': 'positionsList',
+        'pageContent': 'cashierPage', // <-- В главный контейнер вставляем обертку для кассы
+        'positionsList': 'positionsList', // <-- В плейсхолдеры обертки вставляем сами компоненты
         'receipt': 'receipt' 
       }, 
       auth: { required: true, failureRedirect: '/login' }
     },
+    
     'GET /login': { 
       type: 'view', 
-      layout: 'authLayout', 
-      inject: { 'pageContent': 'loginForm' } 
+      layout: 'mainLayout',
+      inject: { 
+        'pageContent': 'authLayout',
+        'formContent': 'loginForm'
+      } 
     },
     'GET /register': { 
       type: 'view', 
-      layout: 'authLayout', 
-      inject: { 'pageContent': 'registerForm' } 
+      layout: 'mainLayout',
+      inject: { 
+        'pageContent': 'authLayout',
+        'formContent': 'registerForm'
+      } 
     },
     
-    // --- Action роуты (аутентификация) ---
     'POST /auth/login': {
       type: 'action',
       reads: ['user'],
@@ -70,20 +73,13 @@ module.exports = {
         }
       ]
     },
-    // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-   'GET /auth/logout': {
+    'GET /auth/logout': {
       type: 'action',
-      // Этот роут теперь не требует ни `auth`, ни `reads`.
-      // Он просто выполняет два шага и всегда доступен.
       steps: [
-        // 1. Выполняет операцию выхода (удаляет сессию и cookie).
         { "auth:logout": true },
-        // 2. Отправляет браузеру команду на перенаправление.
         { "client:redirect": "'/login'" }
       ]
     },
-    // --- Action роуты (бизнес-логика кассы) ---
-    // (остальная часть файла без изменений)
     'POST /action/addItem': {
       type: 'action',
       reads: ['positions', 'receipt', 'user'],

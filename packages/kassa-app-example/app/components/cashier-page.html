@@ -1,0 +1,37 @@
+<!-- packages/kassa-app-example/app/components/cashier-page.html -->
+
+<!-- 
+  Этот компонент является оберткой для основного экрана кассы.
+  Он будет вставлен в главный плейсхолдер <main id="pageContent-container">.
+  Его задача - определить расположение блоков с товарами и чеком.
+-->
+<div class="cashier-page-wrapper">
+    <div id="positionsList-container">
+        <!-- В этот плейсхолдер будет вставлен компонент positionsList -->
+        <atom-inject into="positionsList"></atom-inject>
+    </div>
+    <div id="receipt-container">
+        <!-- В этот плейсхолдер будет вставлен компонент receipt -->
+        <atom-inject into="receipt"></atom-inject>
+    </div>
+</div>
+
+<!-- 
+  Стили для этой обертки. Они будут применены, только когда
+  этот компонент находится на странице.
+-->
+<style>
+    :host .cashier-page-wrapper {
+        display: flex;
+        width: 100%;
+        gap: 24px;
+        align-items: flex-start;
+    }
+
+    @media (max-width: 800px) {
+        :host .cashier-page-wrapper {
+            flex-direction: column;
+            align-items: stretch; 
+        }
+    }
+</style>

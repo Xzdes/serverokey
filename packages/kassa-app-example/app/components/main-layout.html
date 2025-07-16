@@ -57,17 +57,8 @@
         main#pageContent-container {
             display: flex;
             flex-grow: 1;
-            gap: 24px;
             padding: 24px;
-            align-items: flex-start;
             box-sizing: border-box;
-        }
-        
-        @media (max-width: 800px) {
-            main#pageContent-container {
-                flex-direction: column;
-                align-items: stretch; 
-            }
         }
     </style>
 </head>
@@ -78,24 +69,17 @@
         <div class="user-info" atom-if="user.name">
             <span>{{user.name}} ({{user.role}})</span>
             <a href="/auth/logout" atom-action="GET /auth/logout">Выход</a>
-            <a href="/login" atom-link="spa">На страницу входа (SPA)</a>
+            <a href="/register" atom-link="spa">Регистрация (SPA)</a>
         </div>
     </header>
 
     <main id="pageContent-container">
-        <div id="positionsList-container">
-            <atom-inject into="positionsList"></atom-inject>
-        </div>
-        <div id="receipt-container">
-            <atom-inject into="receipt"></atom-inject>
-        </div>
+        <!-- 
+            Теперь здесь ОДИН плейсхолдер для всего контента страницы.
+            Сюда будет вставляться либо страница кассы, либо страница аутентификации.
+        -->
+        <atom-inject into="pageContent"></atom-inject>
     </main>
-
-    <!-- 
-      Тег <script src="/engine-client.js"></script> был удален отсюда.
-      Теперь за его добавление отвечает исключительно renderer.js,
-      чтобы гарантировать, что он будет добавлен на страницу только один раз.
-    -->
 
 </body>
 </html>

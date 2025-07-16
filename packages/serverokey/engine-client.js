@@ -9,9 +9,13 @@ function getActionBody(element) {
     if (form) {
         const formData = new FormData(form);
         for (const [key, value] of formData.entries()) {
-            data[key] = value;
+            // Пропускаем пустые поля, которые не являются кнопками
+            if (value || element.type === 'submit' || element.type === 'button') {
+                data[key] = value;
+            }
         }
     }
+    // Если у самого элемента есть имя и значение, они имеют приоритет
     if (element.name && element.value) {
         data[element.name] = element.value;
     }
@@ -70,7 +74,7 @@ async function handleAction(event) {
     const [method, url] = action.split(' ');
     
     const fetchOptions = {
-        method: method,
+        method: method.toUpperCase(),
         headers: { 
             'Content-Type': 'application/json',
             'X-Socket-Id': socketId 
@@ -82,12 +86,15 @@ async function handleAction(event) {
     }
 
     try {
+        if(isDebugMode) console.log(`[ACTION] Trigger: ${action} | Target: ${targetSelector} | Body:`, fetchOptions.body);
         const response = await fetch(url, fetchOptions);
         if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
         const payload = await response.json();
+        if(isDebugMode) console.log(`[ACTION] Response:`, payload);
 
         if (payload.redirectUrl) {
-            window.location.href = payload.redirectUrl;
+            // Для SPA-редиректа используем навигацию, а не полную перезагрузку
+            handleSpaRedirect(payload.redirectUrl);
             return;
         }
         
@@ -99,17 +106,19 @@ async function handleAction(event) {
             const shouldPreserveFocus = activeElement && targetElement.contains(activeElement) && activeElement.id;
             const activeElementId = shouldPreserveFocus ? activeElement.id : null;
             const selectionStart = activeElement?.selectionStart ?? null;
+            const selectionEnd = activeElement?.selectionEnd ?? null;
 
             if (payload.styles) updateStyles(payload.componentName, payload.styles);
             targetElement.innerHTML = payload.html;
             if (payload.scripts) executeScripts(payload.scripts);
-
+            
+            // Восстанавливаем фокус после обновления DOM
             if (activeElementId) {
                 const newActiveElement = document.getElementById(activeElementId);
                 if (newActiveElement) {
                     newActiveElement.focus();
                     if (selectionStart !== null && typeof newActiveElement.setSelectionRange === 'function') {
-                        newActiveElement.setSelectionRange(selectionStart, selectionStart);
+                        newActiveElement.setSelectionRange(selectionStart, selectionEnd);
                     }
                 }
             }
@@ -117,6 +126,17 @@ async function handleAction(event) {
     } catch (error) {
         console.error(`[Engine] Action failed for "${action}":`, error);
     }
+}
+
+// *** НОВАЯ ФУНКЦИЯ ДЛЯ SPA-РЕДИРЕКТА ***
+function handleSpaRedirect(url) {
+    const targetUrl = new URL(url, window.location.origin);
+    const fakeLink = document.createElement('a');
+    fakeLink.href = targetUrl.href;
+    fakeLink.setAttribute('atom-link', 'spa');
+    const fakeEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(fakeEvent, 'target', { writable: false, value: fakeLink });
+    handleSpaNavigation(fakeEvent);
 }
 
 async function handleSpaNavigation(event) {
@@ -129,6 +149,7 @@ async function handleSpaNavigation(event) {
     if (window.location.pathname === targetUrl.pathname && window.location.search === targetUrl.search) return;
 
     try {
+        if (isDebugMode) console.log(`[SPA] Navigating to: ${targetUrl.href}`);
         const response = await fetch(targetUrl.href, {
             headers: { 'X-Requested-With': 'ServerokeySPA' }
         });
@@ -136,6 +157,13 @@ async function handleSpaNavigation(event) {
         if (!response.ok) throw new Error(`SPA navigation failed: ${response.status}`);
         
         const payload = await response.json();
+        if (isDebugMode) console.log('[SPA] Received payload:', payload);
+
+        // Обрабатываем редирект, который может прийти в ответ на SPA-запрос (например, если сессия истекла)
+        if (payload.redirectUrl) {
+            handleSpaRedirect(payload.redirectUrl);
+            return;
+        }
         
         document.title = payload.title || document.title;
         
@@ -147,19 +175,20 @@ async function handleSpaNavigation(event) {
         (payload.styles || []).forEach(styleInfo => updateStyles(styleInfo.name, styleInfo.css));
         existingStyleNames.forEach(oldName => {
             if (!newStyleNames.has(oldName)) {
-                document.getElementById(`style-for-${oldName}`)?.remove();
+                const styleEl = document.querySelector(`style[data-component-name="${oldName}"]`);
+                styleEl?.remove();
             }
         });
 
-        const mainContainer = document.getElementById('pageContent-container');
-        if (mainContainer) {
-            let newContent = '';
-            // Собираем HTML из всех присланных частей, оборачивая в контейнеры
-            for (const placeholder in payload.injectedParts) {
-                const html = payload.injectedParts[placeholder];
-                newContent += `<div id="${placeholder}-container">${html}</div>`;
+        // *** ИСПРАВЛЕНИЕ ЛОГИКИ ОБНОВЛЕНИЯ КОНТЕНТА ***
+        for(const placeholder in payload.injectedParts) {
+            // Ищем контейнер для плейсхолдера. Обычно это #placeholder-container
+            const container = document.getElementById(`${placeholder}-container`);
+            if (container) {
+                container.innerHTML = payload.injectedParts[placeholder];
+            } else {
+                console.warn(`[SPA] Container for placeholder '${placeholder}' not found.`);
             }
-            mainContainer.innerHTML = newContent;
         }
         
         executeScripts(payload.scripts);
@@ -170,7 +199,7 @@ async function handleSpaNavigation(event) {
 
     } catch (error) {
         console.error('[Engine] SPA Navigation failed:', error);
-        window.location.href = targetUrl.href;
+        window.location.href = targetUrl.href; // Откатываемся к обычной навигации при ошибке
     }
 }
 
@@ -190,6 +219,7 @@ function initializeWebSocket() {
             if (data.type === 'socket_id_assigned') {
                 socketId = data.id;
                 if (isDebugMode) console.log(`[Engine] WebSocket ID assigned: ${socketId}`);
+                // Переподписываемся при переподключении
                 document.querySelectorAll('[atom-socket]').forEach(element => {
                     const channelName = element.getAttribute('atom-socket');
                     if (channelName) {
@@ -198,11 +228,9 @@ function initializeWebSocket() {
                 });
                 return;
             }
-            if (isDebugMode) {
-                console.groupCollapsed(`[DEBUG] WebSocket Event Received: ${data.event}`);
-                console.log('Payload:', data.payload);
-                console.groupEnd();
-            }
+
+            if (isDebugMode) console.log(`[WS] Event received: ${data.event}`, data.payload);
+
             document.querySelectorAll(`[atom-on-event="${data.event}"]`).forEach(element => {
                 const action = element.getAttribute('atom-action');
                 if (action) {
@@ -217,7 +245,7 @@ function initializeWebSocket() {
     };
 
     ws.onclose = () => {
-        console.log('[Engine] WebSocket connection closed. Reconnecting in 3 seconds...');
+        if(isDebugMode) console.log('[Engine] WebSocket connection closed. Reconnecting in 3 seconds...');
         socketId = null;
         setTimeout(initializeWebSocket, 3000);
     };
@@ -226,6 +254,23 @@ function initializeWebSocket() {
         console.error('[Engine] WebSocket error:', error);
         ws.close();
     };
+
+    // Динамическая подписка при появлении новых элементов
+    const observer = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType === 1 && node.matches('[atom-socket]')) {
+                     const channelName = node.getAttribute('atom-socket');
+                     if (channelName && ws.readyState === WebSocket.OPEN) {
+                         ws.send(JSON.stringify({ type: 'subscribe', channel: channelName }));
+                         if(isDebugMode) console.log(`[WS] Subscribed to new element's channel: ${channelName}`);
+                     }
+                }
+            });
+        });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -243,11 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.spaUrl) {
-       const fakeLink = document.createElement('a');
-       fakeLink.href = event.state.spaUrl;
-       fakeLink.setAttribute('atom-link', 'spa');
-       const fakeEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
-       Object.defineProperty(fakeEvent, 'target', { writable: false, value: fakeLink });
-       handleSpaNavigation(fakeEvent);
+       handleSpaRedirect(event.state.spaUrl);
     }
 });

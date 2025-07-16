@@ -37,7 +37,16 @@ class RequestHandler {
                 this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
                 await Promise.all([this.userConnector.initPromise, sessionConnector.initPromise]);
-                this.authEngine = new AuthEngine(this.manifest, this.userConnector.collection, sessionConnector.collection);
+
+                // *** ИЗМЕНЕНИЕ: Передаем коллекции напрямую, а не коннекторы ***
+                const userDbCollection = this.userConnector.collection;
+                const sessionDbCollection = sessionConnector.collection;
+
+                if (!userDbCollection || !sessionDbCollection) {
+                     throw new Error('Database collections for users or sessions are not available.');
+                }
+                this.authEngine = new AuthEngine(this.manifest, userDbCollection, sessionDbCollection);
+
             } catch (e) {
                 console.error("CRITICAL: Failed to initialize AuthEngine. Auth will be disabled.", e);
                 this.authEngine = null;
@@ -51,7 +60,6 @@ class RequestHandler {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
         
-        // Эта проверка должна быть в самом начале, чтобы системные файлы всегда были доступны.
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
             try {
@@ -75,19 +83,20 @@ class RequestHandler {
         let routeConfig = this.findRoute(routeKey);
 
         if (!routeConfig) {
-            const internalRoute = this.findRoute(url.pathname.substring(1));
-            if (internalRoute && internalRoute.internal === true) {
-                console.warn(`[RequestHandler] Attempted to access internal route '${url.pathname}' via HTTP. Denied.`);
-                res.writeHead(403).end('Forbidden');
-                return;
-            }
             res.writeHead(404).end('Not Found');
             return;
         }
 
         if (routeConfig.auth?.required && !user) {
             if (this.authEngine) {
-                this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+                // SPA-запросы требуют JSON-ответа для редиректа, а не 302
+                if (req.headers['x-requested-with'] === 'ServerokeySPA') {
+                    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+                        redirectUrl: routeConfig.auth.failureRedirect || '/login'
+                    }));
+                } else {
+                    this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+                }
             } else {
                  res.writeHead(403).end('Forbidden: Auth engine not configured.');
             }
@@ -102,27 +111,26 @@ class RequestHandler {
                 const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
                 if (isSpaRequest) {
-                    const spaPayload = { title: '', content: '', styles: [], scripts: [] };
+                    // *** ИСПРАВЛЕНИЕ ЛОГИКИ SPA ***
+                    const spaPayload = { title: '', injectedParts: {}, styles: [], scripts: [] };
                     
-                    let mainContentHtml = '';
-                    const mainPlaceholders = Object.keys(routeConfig.inject).filter(p => p !== 'header' && p !== 'footer');
-                    
-                    for (const placeholder of mainPlaceholders) {
+                    for (const placeholder in routeConfig.inject) {
                         const componentName = routeConfig.inject[placeholder];
                         if (componentName) {
+                            // Рендерим каждую часть отдельно
                             const result = await this.renderer.renderComponentRecursive(componentName, dataContext, routeConfig.inject, url);
-                            mainContentHtml += result.html; // Собираем HTML для основного контента
+                            spaPayload.injectedParts[placeholder] = result.html; // Сохраняем как отдельную часть
                             spaPayload.styles.push(...result.styles);
                             spaPayload.scripts.push(...result.scripts);
                         }
                     }
-                    spaPayload.content = mainContentHtml;
 
-                    const componentNameForTitle = routeConfig.inject?.pageContent || routeConfig.layout;
-                    const componentConfig = this.manifest.components[componentNameForTitle];
-                    spaPayload.title = (typeof componentConfig === 'object' && componentConfig.title) 
-                        ? componentConfig.title 
-                        : (this.manifest.globals?.appName || 'Serverokey App');
+                    const mainComponentConfig = this.manifest.components[routeConfig.inject?.pageContent] || this.manifest.components[routeConfig.layout];
+                    if (typeof mainComponentConfig === 'object' && mainComponentConfig.title) {
+                        spaPayload.title = mainComponentConfig.title;
+                    } else {
+                        spaPayload.title = this.manifest.globals?.appName || 'Serverokey App';
+                    }
 
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(spaPayload));
 
@@ -188,12 +196,16 @@ class RequestHandler {
         }
 
         if (res) {
+            // Убедимся, что ответ еще не был отправлен
+            if (res.writableEnded) {
+                return finalContext;
+            }
             const responsePayload = {};
             if (internalActions.redirectUrl) {
                 responsePayload.redirectUrl = internalActions.redirectUrl;
             } else if (routeConfig.update) {
                  const currentUrl = req ? new URL(req.url, `http://${req.headers.host}`) : null;
-                 const componentRenderContext = { data: finalContext.data, user: finalContext.user };
+                 const componentRenderContext = { data: finalContext.data, user: finalContext.user, globals: this.manifest.globals };
                  const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);
                  Object.assign(responsePayload, componentUpdate);
             }
