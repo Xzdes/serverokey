@@ -13,11 +13,14 @@ class RequestHandler {
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
+        
         this.appPath = appPath;
         if (!this.appPath) {
             throw new Error('[RequestHandler] appPath must be provided.');
         }
+
         this.debug = options.debug || false;
+        
         this.authEngine = null;
         this.userConnector = null;
         this.socketEngine = null;
@@ -48,6 +51,7 @@ class RequestHandler {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
         
+        // Эта проверка должна быть в самом начале, чтобы системные файлы всегда были доступны.
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
             try {
@@ -98,21 +102,22 @@ class RequestHandler {
                 const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
                 if (isSpaRequest) {
-                    const spaPayload = { title: '', styles: [], scripts: [], injectedParts: {} };
+                    const spaPayload = { title: '', content: '', styles: [], scripts: [] };
                     
-                    if (routeConfig.inject) {
-                        for (const placeholder in routeConfig.inject) {
-                            const componentName = routeConfig.inject[placeholder];
-                            if (componentName) {
-                                const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
-                                // Отдаем чистый HTML, без оберток
-                                spaPayload.injectedParts[placeholder] = html; 
-                                if (styles) spaPayload.styles.push({ name: componentName, css: styles });
-                                if (scripts) spaPayload.scripts.push(...scripts);
-                            }
+                    let mainContentHtml = '';
+                    const mainPlaceholders = Object.keys(routeConfig.inject).filter(p => p !== 'header' && p !== 'footer');
+                    
+                    for (const placeholder of mainPlaceholders) {
+                        const componentName = routeConfig.inject[placeholder];
+                        if (componentName) {
+                            const result = await this.renderer.renderComponentRecursive(componentName, dataContext, routeConfig.inject, url);
+                            mainContentHtml += result.html; // Собираем HTML для основного контента
+                            spaPayload.styles.push(...result.styles);
+                            spaPayload.scripts.push(...result.scripts);
                         }
                     }
-                    
+                    spaPayload.content = mainContentHtml;
+
                     const componentNameForTitle = routeConfig.inject?.pageContent || routeConfig.layout;
                     const componentConfig = this.manifest.components[componentNameForTitle];
                     spaPayload.title = (typeof componentConfig === 'object' && componentConfig.title) 

@@ -10,7 +10,7 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
             background-color: #f0f2f5;
             margin: 0;
-            padding-top: 60px;
+            padding-top: 60px; /* Фиксированный отступ под шапку */
         }
         
         .app-header {
@@ -91,6 +91,11 @@
         </div>
     </main>
 
-    <script src="/engine-client.js"></script>
+    <!-- 
+      Тег <script src="/engine-client.js"></script> был удален отсюда.
+      Теперь за его добавление отвечает исключительно renderer.js,
+      чтобы гарантировать, что он будет добавлен на страницу только один раз.
+    -->
+
 </body>
 </html>

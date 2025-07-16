@@ -15,30 +15,15 @@ class Renderer {
         const context = {};
         const globalsConfig = this.manifest.globals;
         if (globalsConfig) {
-            for (const key in globalsConfig) {
-                if (key !== 'injectData') {
-                    context[key] = globalsConfig[key];
-                }
-            }
-            if (Array.isArray(globalsConfig.injectData)) {
-                if (this.connectorManager) {
-                    const injectedData = await this.connectorManager.getContext(globalsConfig.injectData);
-                    Object.assign(context, injectedData);
-                } else {
-                     console.warn('[Renderer] Warning: globals.injectData is defined, but no ConnectorManager was provided to Renderer.');
-                }
-            }
+            Object.assign(context, globalsConfig);
         }
-
         if (reqUrl) {
             const { URLSearchParams } = require('url');
-            const searchParams = new URLSearchParams(reqUrl.search);
             context.url = {
                 pathname: reqUrl.pathname,
-                query: Object.fromEntries(searchParams.entries())
+                query: Object.fromEntries(new URLSearchParams(reqUrl.search))
             };
         }
-
         context.asJSON = (data) => {
             if (data === undefined) return 'null';
             return JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
@@ -49,46 +34,18 @@ class Renderer {
     _createDirectivesPlugin(dataContext) {
         const evaluateCondition = (condition) => {
             try {
-                const contextKeys = Object.keys(dataContext);
-                const contextValues = Object.values(dataContext);
-                const func = new Function(...contextKeys, `return ${condition};`);
-                return !!func(...contextValues);
+                const func = new Function(...Object.keys(dataContext), `return ${condition};`);
+                return !!func(...Object.values(dataContext));
             } catch (e) {
-                if(this.debug) console.warn(`[Renderer] Could not evaluate atom-if condition: "${condition}". Error: ${e.message}`);
+                if(this.debug) console.warn(`[Renderer] atom-if failed: "${condition}". Error: ${e.message}`);
                 return false;
             }
         };
-
-        return (tree) => {
-            const newTree = tree.match({ attrs: { 'atom-if': true } }, (node) => {
-                const condition = node.attrs['atom-if'];
-                delete node.attrs['atom-if'];
-                if (!evaluateCondition(condition)) {
-                    return '';
-                }
-                return node;
-            });
-            return newTree;
-        };
-    }
-
-    _createClientScriptsPlugin(scripts, componentId) {
-        return function(tree) {
-            tree.walk(node => {
-                if (node && node.tag === 'script' && node.attrs && node.attrs.hasOwnProperty('atom-run')) {
-                    const scriptContent = node.content ? node.content.join('').trim() : '';
-                    if (scriptContent) {
-                        scripts.push({
-                            id: componentId,
-                            code: scriptContent
-                        });
-                    }
-                    return null;
-                }
-                return node;
-            });
-            return tree;
-        };
+        return (tree) => tree.match({ attrs: { 'atom-if': true } }, (node) => {
+            if (!evaluateCondition(node.attrs['atom-if'])) return '';
+            delete node.attrs['atom-if'];
+            return node;
+        });
     }
 
     _createAddComponentIdPlugin(componentId) {
@@ -105,102 +62,89 @@ class Renderer {
             return tree;
         };
     }
-
-    // --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    
     _scopeCss(css, scopeId) {
         if (!css || !scopeId) return '';
-        
         try {
-            const ast = csstree.parse(css, {
-                onParseError: (error) => {
-                    if (this.debug) console.warn(`[Renderer] CSS parse error for scope ${scopeId}: ${error.message}`);
-                }
-            });
-
-            const scopeAttr = `[data-component-id="${scopeId}"]`;
-            const scopeAst = csstree.parse(scopeAttr, { context: 'selector' });
-            const attributeSelectorNode = csstree.find(scopeAst, node => node.type === 'AttributeSelector');
-
-            if (!attributeSelectorNode) {
-                console.warn(`[Renderer] Could not create a scope attribute node for ${scopeId}.`);
-                return css;
-            }
-
+            const ast = csstree.parse(css);
+            
             csstree.walk(ast, {
-                visit: 'Selector',
-                enter: (selector) => {
-                    // Используем фундаментальную проверку - есть ли у списка "голова" (первый элемент)
-                    if (!selector.children || selector.children.head === null) {
+                visit: 'Rule',
+                enter: function(rule) {
+                    if (rule.type !== 'Rule' || !rule.prelude || rule.prelude.type !== 'SelectorList') {
                         return;
                     }
                     
-                    const firstChild = selector.children.head.data;
-                    
-                    if (firstChild.type === 'PseudoClassSelector' && firstChild.name.toLowerCase() === 'host') {
-                        selector.children.replace(selector.children.head, {
-                            type: 'ListItem',
-                            data: csstree.clone(attributeSelectorNode)
-                        });
-                        return;
-                    }
-                    
-                    const selectorName = firstChild.name ? String(firstChild.name).toLowerCase() : '';
-                    if (
-                        firstChild.type === 'Percentage' ||
-                        (firstChild.type === 'TypeSelector' && ['html', 'body'].includes(selectorName)) ||
-                        (firstChild.type === 'PseudoClassSelector' && ['root'].includes(selectorName))
-                    ) {
-                        return;
-                    }
-                    
-                    selector.children.prependData({ type: 'WhiteSpace', value: ' ' });
-                    selector.children.prependData(csstree.clone(attributeSelectorNode));
+                    const originalSelectors = csstree.generate(rule.prelude);
+
+                    const scopedSelectors = originalSelectors.split(',')
+                        .map(selectorString => {
+                            const trimmedSelector = selectorString.trim();
+                            if (trimmedSelector.startsWith(':host')) {
+                                return trimmedSelector.replace(/:host/g, `[data-component-id="${scopeId}"]`);
+                            }
+                            return `[data-component-id="${scopeId}"] ${trimmedSelector}`;
+                        })
+                        .join(', ');
+
+                    rule.prelude = csstree.parse(scopedSelectors, { context: 'selectorList' });
                 }
             });
-
+            
             return csstree.generate(ast);
         } catch (e) {
-            console.error(`[Renderer] A critical error occurred while scoping CSS for ${scopeId}. Returning original CSS. Error:`, e);
-            return css;
+            console.error(`[Renderer] Error scoping CSS for ${scopeId}:`, e);
+            return css; 
         }
     }
 
-    async renderComponent(componentName, dataContext = {}, reqUrl = null) {
+    async renderComponentRecursive(componentName, dataContext, routeInjectConfig, reqUrl) {
         const component = this.assetLoader.getComponent(componentName);
         if (!component) throw new Error(`Component "${componentName}" not found.`);
 
-        const globalContext = await this._getGlobalContext(reqUrl);
-        const renderContext = { ...globalContext, ...dataContext };
-
+        let componentTemplate = component.template;
+        const collectedStyles = [];
+        const collectedScripts = [];
         const componentId = `c-${Math.random().toString(36).slice(2, 9)}`;
-        renderContext._internal = { id: componentId };
-        
-        const scripts = [];
-        
-        const plugins = [
-            this._createDirectivesPlugin(renderContext),
-            this._createClientScriptsPlugin(scripts, componentId),
-            this._createAddComponentIdPlugin(componentId)
-        ];
 
-        let mustacheHtml = Mustache.render(component.template, renderContext);
-        
-        const { html } = await posthtml(plugins).process(mustacheHtml, { sync: true });
-        
-        const styles = this._scopeCss(component.style, componentId);
-
-        let finalHtml = html;
-        if (this.debug) {
-            const safeContextJson = JSON.stringify(renderContext, (key, value) => {
-                if (key === '_col' || value instanceof Promise) return `[Complex Object]`;
-                return value;
-            }, 2);
-            finalHtml = `<!-- [DEBUG] Rendered component '${componentName}' with context:\n${safeContextJson}\n-->\n${html}`;
+        const scopedCss = this._scopeCss(component.style || '', componentId);
+        if (scopedCss) {
+            collectedStyles.push({ name: componentName, id: componentId, css: scopedCss });
         }
 
-        return { html: finalHtml, styles, scripts, componentName };
+        const placeholders = componentTemplate.match(/<atom-inject into="([^"]+)"><\/atom-inject>/g) || [];
+        for (const placeholder of placeholders) {
+            const placeholderName = placeholder.match(/into="([^"]+)"/)[1];
+            const childComponentName = routeInjectConfig[placeholderName];
+            if (childComponentName) {
+                const childResult = await this.renderComponentRecursive(childComponentName, dataContext, routeInjectConfig, reqUrl);
+                componentTemplate = componentTemplate.replace(placeholder, childResult.html);
+                collectedStyles.push(...childResult.styles);
+                collectedScripts.push(...childResult.scripts);
+            }
+        }
+        
+        const mustacheHtml = Mustache.render(componentTemplate, dataContext);
+        
+        const posthtmlPlugins = [
+            this._createDirectivesPlugin(dataContext),
+            this._createAddComponentIdPlugin(componentId)
+        ];
+        const { html } = await posthtml(posthtmlPlugins).process(mustacheHtml, { sync: true });
+        
+        return { html, styles: collectedStyles, scripts: collectedScripts };
     }
 
+    async renderComponent(componentName, dataContext = {}, reqUrl = null) {
+        const { html, styles, scripts } = await this.renderComponentRecursive(componentName, dataContext, {}, reqUrl);
+        return {
+            html,
+            styles: styles.map(s => s.css).join('\n'),
+            scripts,
+            componentName
+        };
+    }
+    
     async renderView(routeConfig, dataContext, reqUrl) {
         const layoutComponent = this.assetLoader.getComponent(routeConfig.layout);
         if (!layoutComponent) throw new Error(`Layout "${routeConfig.layout}" not found.`);
@@ -208,58 +152,35 @@ class Renderer {
         const globalContext = await this._getGlobalContext(reqUrl);
         const finalRenderContext = { ...globalContext, ...dataContext };
 
-        const allStyleTags = [];
-        const allScripts = [];
-        const injectedHtml = {};
-
-        if (routeConfig.inject) {
-            for (const placeholderName in routeConfig.inject) {
-                const componentName = routeConfig.inject[placeholderName];
-                if (componentName) {
-                    const { html, styles, scripts } = await this.renderComponent(componentName, finalRenderContext, reqUrl);
-                    if (styles) {
-                        allStyleTags.push(`<style data-component-name="${componentName}">${styles}</style>`);
-                    }
-                    if (scripts) allScripts.push(...scripts);
-                    
-                    injectedHtml[placeholderName] = html;
-                }
-            }
-        }
-
-        let layoutHtml = layoutComponent.template.replace(/<atom-inject into="([^"]+)"><\/atom-inject>/g, (match, placeholderName) => {
-            return injectedHtml[placeholderName] || `<!-- Placeholder '${placeholderName}' not filled -->`;
-        });
+        const { html, styles, scripts } = await this.renderComponentRecursive(
+            routeConfig.layout, 
+            finalRenderContext, 
+            routeConfig.inject, 
+            reqUrl
+        );
         
-        layoutHtml = Mustache.render(layoutHtml, finalRenderContext);
+        let finalHtml = html;
 
-        if (allStyleTags.length > 0) {
-            const styleTag = allStyleTags.join('\n');
-            if (layoutHtml.includes('</head>')) {
-                 layoutHtml = layoutHtml.replace('</head>', `${styleTag}\n</head>`);
-            } else {
-                 layoutHtml += styleTag;
-            }
+        if (styles.length > 0) {
+            const styleTags = styles.map(s => `<style data-component-name="${s.name}" id="style-for-${s.id}">${s.css}</style>`).join('\n');
+            finalHtml = finalHtml.includes('</head>') 
+                ? finalHtml.replace('</head>', `${styleTags}\n</head>`)
+                : finalHtml + styleTags;
         }
         
         const clientScriptTag = `<script src="/engine-client.js"></script>`;
-        const scriptsTag = allScripts.length > 0
-            ? `<script type="application/json" data-atom-scripts>${JSON.stringify(allScripts)}</script>`
-            : '';
-        
+        const scriptsTag = scripts.length > 0 ? `<script type="application/json" data-atom-scripts>${JSON.stringify(scripts)}</script>` : '';
         const finalBodyTag = `${scriptsTag}\n${clientScriptTag}\n</body>`;
 
-        if (layoutHtml.includes('</body>')) {
-            layoutHtml = layoutHtml.replace('</body>', finalBodyTag);
-        } else {
-            layoutHtml += finalBodyTag;
-        }
+        finalHtml = finalHtml.includes('</body>')
+            ? finalHtml.replace('</body>', finalBodyTag)
+            : finalHtml + finalBodyTag;
 
         if (this.debug) {
-            layoutHtml = layoutHtml.replace('<body', '<body data-debug-mode="true"');
+            finalHtml = finalHtml.replace('<body', '<body data-debug-mode="true"');
         }
         
-        return layoutHtml;
+        return finalHtml;
     }
 }
 

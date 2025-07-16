@@ -1,10 +1,22 @@
+<!-- packages/kassa-app-example/app/components/login-form.html -->
 <div>
     <h2>Вход в систему</h2>
     
+    <!-- 
+      Этот блок будет показан, только если в URL есть параметр ?registered=true.
+      Это полезно для отображения сообщений после редиректа.
+    -->
     <p atom-if="url.query.registered" style="color: green; text-align: center;">Регистрация прошла успешно! Теперь вы можете войти.</p>
+    
+    <!-- Аналогично для отображения ошибки -->
     <p class="error" atom-if="url.query.error">Неверный логин или пароль.</p>
 
-    <!-- ИЗМЕНЕНИЕ: Добавляем atom-action на форму -->
+    <!-- 
+      КЛЮЧЕВОЙ МОМЕНТ:
+      Атрибут atom-action находится на самой форме. Это говорит engine-client.js,
+      что нужно слушать событие 'submit' для этой формы. Стандартные атрибуты
+      action и method остаются для обратной совместимости, если JS отключен.
+    -->
     <form action="/auth/login" method="POST" atom-action="POST /auth/login">
         <div class="form-group">
             <label for="login">Логин</label>
@@ -18,7 +30,13 @@
             <button type="submit">Войти</button>
         </div>
     </form>
+    
     <div class="links">
-        <a href="/register">У меня еще нет аккаунта</a>
+        <!-- 
+          Эта ссылка использует SPA-навигацию. При клике на нее
+          engine-client.js перехватит событие и загрузит контент
+          для страницы регистрации без перезагрузки.
+        -->
+        <a href="/register" atom-link="spa">У меня еще нет аккаунта</a>
     </div>
 </div>

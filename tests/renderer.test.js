@@ -1,3 +1,5 @@
+// tests/renderer.test.js
+
 const path = require('path');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -42,7 +44,7 @@ function setupEnvironment(appPath) {
     const manifest = require(path.join(appPath, 'manifest.js'));
     const connectorManager = new ConnectorManager(appPath, manifest);
     const assetLoader = new AssetLoader(appPath, manifest);
-    const renderer = new Renderer(assetLoader, manifest, connectorManager);
+    const renderer = new Renderer(assetLoader, manifest, connectorManager, null, { debug: true });
     log('Environment setup complete.');
     return { manifest, renderer };
 }
@@ -86,13 +88,18 @@ async function runViewRenderingTest(appPath) {
     const finalHtml = await renderer.renderView(manifest.routes['GET /'], {}, null);
     log('Received final page HTML (first 200 chars):', finalHtml.substring(0, 200) + '...');
     
-    // *** ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ***
     check(
         /<header[^>]*>Header<\/header>/.test(finalHtml), 
         'Header component should be injected.',
         finalHtml
     );
-    check(finalHtml.includes('<style data-component-name="header">'), 'Style tag should be added to head.', finalHtml);
+    
+    // ИСПРАВЛЕННАЯ ПРОВЕРКА: Используем регулярное выражение
+    check(
+        /<style[^>]*data-component-name="header"/.test(finalHtml), 
+        'Style tag should be added to head.',
+        finalHtml
+    );
 }
 
 
