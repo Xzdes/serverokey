@@ -1,7 +1,7 @@
 // packages/serverokey/core/action-engine.js
 const http = require('http');
-const https = require('https');
-const { z } = require('zod');
+const https = 'https';
+const { z, ZodError } = require('zod');
 const path = require('path');
 
 /**
@@ -32,12 +32,19 @@ function evaluate(expression, context, appPath, debug = false) {
             }}}}
         };
         
-        // Добавляем zod в контекст, чтобы он был доступен внутри `with`
         context.zod = z;
 
         return func(context, smartRequire);
 
     } catch (error) {
+        // Если это ошибка валидации Zod, мы НЕ "прощаем" ее, а пробрасываем наверх,
+        // чтобы ActionEngine мог ее перехватить и остановить выполнение.
+        if (error instanceof ZodError) {
+            throw error;
+        }
+
+        // Для всех остальных ошибок (синтаксис, доступ к полям) сохраняем старое поведение:
+        // выводим предупреждение и возвращаем undefined.
         if (debug) {
             console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
@@ -181,10 +188,9 @@ class ActionEngine {
                 console.warn('[ActionEngine] Unknown or incomplete step:', step);
             }
         } catch (error) {
-            console.error(`\n💥 [ActionEngine] Step execution failed!`);
-            console.error(`   Step: ${JSON.stringify(step)}`);
-            console.error(`   Error: ${error.message}\n`);
-            throw error;
+            const errorMessage = `Step execution failed! Step: ${JSON.stringify(step)}. Error: ${error.message}`;
+            console.error(`\n💥 [ActionEngine] ${errorMessage}\n`);
+            throw new Error(errorMessage, { cause: error });
         }
     }
 
