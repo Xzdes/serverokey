@@ -1,5 +1,7 @@
+// tests/request-handler.test.js
 const path = require('path');
 const http = require('http');
+const { Readable } = require('stream'); // Импортируем Readable
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -29,21 +31,23 @@ function check(condition, description, actual) {
     }
 }
 
-function createMockHttp(method, url, headers = {}) {
-    const req = new http.IncomingMessage();
-    req.method = method;
-    req.url = url;
-    req.headers = { host: 'localhost', ...headers };
-
+// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ-ПОМОЩНИК ***
+function createMockHttp(method, url, headers = {}, body = '') {
+    // Создаем настоящий читаемый поток из тела запроса
+    const reqStream = Readable.from(body);
+    // Прикрепляем к нему нужные свойства HTTP запроса
+    Object.assign(reqStream, {
+        method: method,
+        url: url,
+        headers: { host: 'localhost:3000', ...headers },
+        socket: {} // Минимальный мок для сокета
+    });
+    
+    // Используем его как наш `req`
+    const req = reqStream;
     const res = new http.ServerResponse(req);
     const chunks = [];
-    const originalEnd = res.end;
-    res.end = (chunk) => {
-        if (chunk) chunks.push(Buffer.from(chunk));
-        originalEnd.call(res);
-        res.emit('finish');
-    };
-
+    
     const resultPromise = new Promise((resolve) => {
         res.on('finish', () => {
             resolve({
@@ -52,17 +56,26 @@ function createMockHttp(method, url, headers = {}) {
                 body: Buffer.concat(chunks).toString('utf8')
             });
         });
+        // Перехватываем данные, которые пишет res.end()
+        const originalWrite = res.write;
+        const originalEnd = res.end;
+        res.write = (chunk, encoding, cb) => {
+            chunks.push(Buffer.from(chunk, encoding));
+            return originalWrite.call(res, chunk, encoding, cb);
+        };
+        res.end = (chunk, encoding, cb) => {
+             if(chunk) chunks.push(Buffer.from(chunk, encoding));
+             return originalEnd.call(res, chunk, encoding, cb);
+        };
     });
     
     return { req, res, resultPromise };
 }
 
-// --- Тестовые Сценарии ---
 
+// --- Тестовые Сценарии ---
 async function runRequestHandlerTests(appPath) {
-    // *** ИСПРАВЛЕНИЕ ЗДЕСЬ ***
-    const REQUEST_HANDLER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js');
-    const { RequestHandler } = require(REQUEST_HANDLER_PATH);
+    const { RequestHandler } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js'));
     const { ConnectorManager } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/connector-manager.js'));
     const { AssetLoader } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js'));
 
@@ -71,6 +84,7 @@ async function runRequestHandlerTests(appPath) {
     const connectorManager = new ConnectorManager(appPath, manifest);
     const assetLoader = new AssetLoader(appPath, manifest);
     const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, null, appPath);
+    await requestHandler.authInitPromise; // Дождемся инициализации
     log('Environment setup complete.');
 
     // --- Сценарий 1: 404 Not Found ---
@@ -91,14 +105,12 @@ async function runRequestHandlerTests(appPath) {
 
     // --- Сценарий 3: Невалидный JSON в теле POST-запроса ---
     log('--- Test Case: Invalid JSON in POST body ---');
-    ({ req, res, resultPromise } = createMockHttp('POST', '/action/doSomething', { 'content-type': 'application/json' }));
-    await requestHandler.handle(req, res); // Вызываем handle до эмита событий
     const invalidJson = '{ "key": "value", }';
-    req.emit('data', invalidJson);
-    req.emit('end');
+    ({ req, res, resultPromise } = createMockHttp('POST', '/action/doSomething', { 'content-type': 'application/json' }, invalidJson));
+    await requestHandler.handle(req, res);
     response = await resultPromise;
     log('Response for invalid JSON:', response);
-    check(response.statusCode === 500, 'Should return 500 for invalid JSON in body.'); 
+    check(response.statusCode === 500, 'Should return 500 for invalid JSON in body.');
     
     // --- Сценарий 4: Доступ к внутреннему роуту ---
     log('--- Test Case: Accessing internal route ---');
@@ -110,7 +122,6 @@ async function runRequestHandlerTests(appPath) {
 }
 
 // --- Экспорт Теста ---
-
 module.exports = {
     'RequestHandler: Should correctly handle various error scenarios': {
         options: {

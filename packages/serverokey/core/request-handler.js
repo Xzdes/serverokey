@@ -1,5 +1,4 @@
 // packages/serverokey/core/request-handler.js
-
 const { URL, URLSearchParams } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -13,14 +12,8 @@ class RequestHandler {
         this.connectorManager = connectorManager;
         this.assetLoader = assetLoader;
         this.renderer = renderer;
-        
         this.appPath = appPath;
-        if (!this.appPath) {
-            throw new Error('[RequestHandler] appPath must be provided.');
-        }
-
         this.debug = options.debug || false;
-        
         this.authEngine = null;
         this.userConnector = null;
         this.socketEngine = null;
@@ -37,16 +30,7 @@ class RequestHandler {
                 this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
                 await Promise.all([this.userConnector.initPromise, sessionConnector.initPromise]);
-
-                // *** ИЗМЕНЕНИЕ: Передаем коллекции напрямую, а не коннекторы ***
-                const userDbCollection = this.userConnector.collection;
-                const sessionDbCollection = sessionConnector.collection;
-
-                if (!userDbCollection || !sessionDbCollection) {
-                     throw new Error('Database collections for users or sessions are not available.');
-                }
-                this.authEngine = new AuthEngine(this.manifest, userDbCollection, sessionDbCollection);
-
+                this.authEngine = new AuthEngine(this.manifest, this.userConnector.collection, sessionConnector.collection);
             } catch (e) {
                 console.error("CRITICAL: Failed to initialize AuthEngine. Auth will be disabled.", e);
                 this.authEngine = null;
@@ -55,196 +39,174 @@ class RequestHandler {
     }
 
     async handle(req, res) {
-        await this.authInitPromise;
+        try {
+            await this.authInitPromise;
+            const url = new URL(req.url, `http://${req.headers.host}`);
 
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const routeKey = `${req.method} ${url.pathname}`;
-        
-        if (routeKey === 'GET /engine-client.js') {
-            const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
-            try {
+            if (req.url === '/engine-client.js') {
+                const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
                 const scriptContent = fs.readFileSync(clientScriptPath);
                 res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(scriptContent);
-            } catch (error) {
-                console.error(`[Engine] CRITICAL: Could not read engine-client.js file.`, error);
-                res.writeHead(500).end('Internal Server Error');
+                return;
             }
-            return;
-        }
 
-        let user = null;
-        if (this.authEngine) {
-            const session = await this.authEngine.getSession(req);
-            if (session && session.userId) {
-                user = await this.userConnector.collection.getById(session.userId);
+            const routeConfig = this.findRoute(req.method, url.pathname);
+            if (!routeConfig) {
+                return this.sendResponse(res, 404, 'Not Found');
             }
-        }
-        
-        let routeConfig = this.findRoute(routeKey);
 
-        if (!routeConfig) {
-            res.writeHead(404).end('Not Found');
-            return;
-        }
+            if (routeConfig.internal === true) {
+                return this.sendResponse(res, 403, 'Forbidden', 'text/plain');
+            }
 
-        if (routeConfig.auth?.required && !user) {
+            let user = null;
             if (this.authEngine) {
-                // SPA-запросы требуют JSON-ответа для редиректа, а не 302
-                if (req.headers['x-requested-with'] === 'ServerokeySPA') {
-                    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
-                        redirectUrl: routeConfig.auth.failureRedirect || '/login'
-                    }));
-                } else {
-                    this.authEngine.redirect(res, routeConfig.auth.failureRedirect || '/login');
+                const session = await this.authEngine.getSession(req);
+                if (session && session.userId) {
+                    user = await this.userConnector.collection.getById(session.userId);
                 }
-            } else {
-                 res.writeHead(403).end('Forbidden: Auth engine not configured.');
             }
-            return;
-        }
-        
-        try {
+
+            if (routeConfig.auth?.required && !user) {
+                const redirectUrl = routeConfig.auth.failureRedirect || '/login';
+                if (req.headers['x-requested-with'] === 'ServerokeySPA') {
+                    return this.sendResponse(res, 200, { redirectUrl }, 'application/json');
+                }
+                return this.authEngine.redirect(res, redirectUrl);
+            }
+
             if (routeConfig.type === 'view') {
                 const dataFromReads = await this.connectorManager.getContext(routeConfig.reads || []);
                 const dataContext = { data: dataFromReads, user: user || null };
-                
-                const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
-                if (isSpaRequest) {
-                    // *** ИСПРАВЛЕНИЕ ЛОГИКИ SPA ***
+                if (req.headers['x-requested-with'] === 'ServerokeySPA') {
                     const spaPayload = { title: '', injectedParts: {}, styles: [], scripts: [] };
+                    const mainContentPlaceholder = 'pageContent'; // Контейнер для основного контента
+
+                    // Рендерим компонент, который должен быть вставлен в главный контейнер
+                    const mainComponentToRender = routeConfig.inject[mainContentPlaceholder];
+                    if (mainComponentToRender) {
+                        const result = await this.renderer.renderComponentRecursive(mainComponentToRender, dataContext, routeConfig.inject, url);
+                        spaPayload.injectedParts[mainContentPlaceholder] = result.html;
+                        spaPayload.styles.push(...result.styles);
+                        spaPayload.scripts.push(...result.scripts);
+
+                        const mainComponentConfig = this.manifest.components[mainComponentToRender] || {};
+                         spaPayload.title = (typeof mainComponentConfig === 'object' && mainComponentConfig.title) 
+                            ? mainComponentConfig.title 
+                            : (this.manifest.globals?.appName || 'Serverokey App');
+                    }
                     
-                    for (const placeholder in routeConfig.inject) {
-                        const componentName = routeConfig.inject[placeholder];
-                        if (componentName) {
-                            // Рендерим каждую часть отдельно
-                            const result = await this.renderer.renderComponentRecursive(componentName, dataContext, routeConfig.inject, url);
-                            spaPayload.injectedParts[placeholder] = result.html; // Сохраняем как отдельную часть
-                            spaPayload.styles.push(...result.styles);
-                            spaPayload.scripts.push(...result.scripts);
-                        }
-                    }
-
-                    const mainComponentConfig = this.manifest.components[routeConfig.inject?.pageContent] || this.manifest.components[routeConfig.layout];
-                    if (typeof mainComponentConfig === 'object' && mainComponentConfig.title) {
-                        spaPayload.title = mainComponentConfig.title;
-                    } else {
-                        spaPayload.title = this.manifest.globals?.appName || 'Serverokey App';
-                    }
-
-                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(spaPayload));
-
-                } else {
-                    const html = await this.renderer.renderView(routeConfig, dataContext, url);
-                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
+                    return this.sendResponse(res, 200, spaPayload, 'application/json');
                 }
+                
+                const html = await this.renderer.renderView(routeConfig, dataContext, url);
+                return this.sendResponse(res, 200, html, 'text/html; charset=utf-8');
 
             } else if (routeConfig.type === 'action') {
                 const body = await this._parseBody(req);
                 const socketId = req.headers['x-socket-id'] || null;
+                const routeKey = `${req.method} ${url.pathname}`;
                 await this.runAction(routeKey, { user, body, socketId }, req, res, this.debug);
             }
         } catch (error) {
-            console.error(`[Engine] Error processing route ${routeKey}:`, error);
-            res.writeHead(500).end('Internal Server Error');
+            console.error(`[Engine] Error processing request ${req.method} ${req.url}:`, error);
+            if (!res.writableEnded) {
+                this.sendResponse(res, 500, 'Internal Server Error');
+            }
         }
     }
-    
-    findRoute(key) {
-        if (this.manifest.routes[key]) {
-            return this.manifest.routes[key];
-        }
+
+    findRoute(method, pathname) {
+        const routes = this.manifest.routes || {};
+        const fullKey = `${method} ${pathname}`;
+        if (routes[fullKey]) return routes[fullKey];
+
+        const pathAsKey = pathname.startsWith('/') ? pathname.substring(1) : pathname;
+        if (routes[pathAsKey]) return routes[pathAsKey];
+
         return null;
     }
 
     async runAction(routeName, initialContext, req, res, debug = false) {
-        const routeConfig = this.findRoute(routeName);
-        if (!routeConfig) {
-            throw new Error(`[RequestHandler] Action route '${routeName}' not found.`);
-        }
-        
+        const routeConfig = this.manifest.routes[routeName];
+        if (!routeConfig) throw new Error(`Action route '${routeName}' not found.`);
+
         const context = {
             data: initialContext.data || await this.connectorManager.getContext(routeConfig.reads || []),
             user: initialContext.user,
             body: initialContext.body,
         };
-        
+
         const engine = new ActionEngine(context, this.appPath, this.assetLoader, this, debug);
         await engine.run(routeConfig.steps || []);
         const finalContext = engine.context;
-
         const internalActions = finalContext._internal || {};
-        
+
         if (internalActions.loginUser && this.authEngine) {
             const sessionId = await this.authEngine.createSession(internalActions.loginUser);
-            if(res) res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, {
-                httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax'
-            }));
+            if (res) res.setHeader('Set-Cookie', cookie.serialize('session_id', sessionId, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' }));
         }
-        
+
         if (internalActions.logout && this.authEngine) {
-            if(res) await this.authEngine.clearSession(req, res);
+            if (res) await this.authEngine.clearSession(req, res);
         }
 
         for (const key of (routeConfig.writes || [])) {
             if (finalContext.data[key]) {
                 await this.connectorManager.getConnector(key).write(finalContext.data[key]);
-                if (this.socketEngine) {
-                    await this.socketEngine.notifyOnWrite(key, initialContext.socketId);
-                }
+                if (this.socketEngine) await this.socketEngine.notifyOnWrite(key, initialContext.socketId);
             }
         }
 
         if (res) {
-            // Убедимся, что ответ еще не был отправлен
-            if (res.writableEnded) {
-                return finalContext;
-            }
             const responsePayload = {};
             if (internalActions.redirectUrl) {
                 responsePayload.redirectUrl = internalActions.redirectUrl;
             } else if (routeConfig.update) {
-                 const currentUrl = req ? new URL(req.url, `http://${req.headers.host}`) : null;
-                 const componentRenderContext = { data: finalContext.data, user: finalContext.user, globals: this.manifest.globals };
-                 const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);
-                 Object.assign(responsePayload, componentUpdate);
+                const currentUrl = req ? new URL(req.url, `http://${req.headers.host}`) : null;
+                const componentRenderContext = { data: finalContext.data, user: finalContext.user, globals: this.manifest.globals };
+                const componentUpdate = await this.renderer.renderComponent(routeConfig.update, componentRenderContext, currentUrl);
+                Object.assign(responsePayload, componentUpdate);
             }
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(responsePayload));
+            this.sendResponse(res, 200, responsePayload, 'application/json');
         }
 
         return finalContext;
     }
 
     _parseBody(req) {
-        const contentType = req.headers['content-type'] || '';
-        const MAX_BODY_SIZE = 1e6;
-
         return new Promise((resolve, reject) => {
+            const contentType = req.headers['content-type'] || '';
+            const MAX_BODY_SIZE = 1e6;
             let body = '';
             let size = 0;
             req.on('data', chunk => {
                 size += chunk.length;
                 if (size > MAX_BODY_SIZE) {
-                    req.socket.destroy(); 
-                    reject(new Error('Payload Too Large'));
-                    return; 
+                    req.socket.destroy();
+                    return reject(new Error('Payload Too Large'));
                 }
                 body += chunk.toString();
             });
             req.on('end', () => {
                 try {
-                    if (contentType.includes('application/json')) {
-                        resolve(body ? JSON.parse(body) : {});
-                    } else if (contentType.includes('application/x-www-form-urlencoded')) {
-                        const params = new URLSearchParams(body);
-                        resolve(Object.fromEntries(params.entries()));
-                    } else { resolve({}); }
+                    if (!body) return resolve({});
+                    if (contentType.includes('application/json')) resolve(JSON.parse(body));
+                    else if (contentType.includes('application/x-www-form-urlencoded')) resolve(Object.fromEntries(new URLSearchParams(body).entries()));
+                    else resolve({});
                 } catch (e) {
-                    reject(new Error('Invalid request body'));
+                    reject(new Error(`Invalid request body: ${e.message}`));
                 }
             });
             req.on('error', err => reject(err));
         });
+    }
+
+    sendResponse(res, statusCode, data, contentType = 'text/plain') {
+        if (res.writableEnded) return;
+        const body = (contentType.includes('json') && typeof data !== 'string') ? JSON.stringify(data) : data;
+        res.writeHead(statusCode, { 'Content-Type': contentType }).end(body);
     }
 }
 

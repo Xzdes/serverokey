@@ -1,17 +1,15 @@
+// tests/auth.test.js
 const path = require('path');
-const http = require('http'); // Понадобится для создания моков req/res
+const http = require('http'); 
+const { Readable } = require('stream'); // Импортируем Readable
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-// Очистка кэша для всех используемых модулей ядра
-const REQUEST_HANDLER_PATH = path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js');
-if (require.cache[REQUEST_HANDLER_PATH]) delete require.cache[REQUEST_HANDLER_PATH];
-// ... и для всех остальных зависимостей, чтобы обеспечить чистоту
-['action-engine.js', 'asset-loader.js', 'auth-engine.js', 'connector-manager.js', 'connectors/wise-json-connector.js'].forEach(file => {
+// Очистка кэша
+['request-handler.js', 'action-engine.js', 'asset-loader.js', 'auth-engine.js', 'connector-manager.js', 'connectors/wise-json-connector.js'].forEach(file => {
     const modulePath = path.join(PROJECT_ROOT, 'packages/serverokey/core', file);
     if (require.cache[modulePath]) delete require.cache[modulePath];
 });
-
 
 // Вспомогательные функции
 function log(message, data) {
@@ -31,51 +29,40 @@ function check(condition, description, actual) {
     }
 }
 
-/**
- * Инициализирует полное окружение для теста, включая RequestHandler.
- */
 function setupAuthEnvironment(appPath) {
     log('Setting up environment for Auth test...');
-    const { RequestHandler } = require(REQUEST_HANDLER_PATH);
+    const { RequestHandler } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/request-handler.js'));
     const { ConnectorManager } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/connector-manager.js'));
     const { AssetLoader } = require(path.join(PROJECT_ROOT, 'packages/serverokey/core/asset-loader.js'));
 
     const manifest = require(path.join(appPath, 'manifest.js'));
     const connectorManager = new ConnectorManager(appPath, manifest);
-    // Для тестов аутентификации нам не нужен Renderer
     const assetLoader = new AssetLoader(appPath, manifest);
     const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, null, appPath);
     
-    // Дадим Wise.JSON время на инициализацию
-    return new Promise(resolve => setTimeout(() => {
-        log('Environment setup complete.');
-        resolve({ requestHandler, connectorManager });
-    }, 100));
+    return new Promise(resolve => {
+        // Дожидаемся полной инициализации AuthEngine
+        requestHandler.authInitPromise.then(() => {
+            log('Environment setup complete.');
+            resolve({ requestHandler, connectorManager });
+        });
+    });
 }
 
-/**
- * Создает мок-объекты запроса и ответа для тестирования RequestHandler.
- */
+// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ-ПОМОЩНИК ***
 function createMockHttp(method, url, headers = {}, body = '') {
-    const req = new http.IncomingMessage();
-    req.method = method;
-    req.url = url;
-    req.headers = {
-        'host': 'localhost:3000',
-        ...headers
-    };
-
+    const reqStream = Readable.from(JSON.stringify(body));
+    Object.assign(reqStream, {
+        method: method,
+        url: url,
+        headers: { host: 'localhost:3000', 'content-type': 'application/json', ...headers },
+        socket: {}
+    });
+    
+    const req = reqStream;
     const res = new http.ServerResponse(req);
     const chunks = [];
-    let endCalled = false;
-    const originalEnd = res.end;
-    res.end = (chunk) => {
-        if (chunk) chunks.push(chunk);
-        endCalled = true;
-        originalEnd.call(res, chunk);
-    };
-
-    // Обертка для получения результата
+    
     const resultPromise = new Promise((resolve) => {
         res.on('finish', () => {
             resolve({
@@ -84,6 +71,11 @@ function createMockHttp(method, url, headers = {}, body = '') {
                 body: Buffer.concat(chunks).toString('utf8')
             });
         });
+        const originalEnd = res.end;
+        res.end = (chunk, encoding, cb) => {
+             if(chunk) chunks.push(Buffer.from(chunk, encoding));
+             return originalEnd.call(res, chunk, encoding, cb);
+        };
     });
     
     return { req, res, resultPromise };
@@ -98,21 +90,17 @@ async function runAuthWorkflowTest(appPath) {
     // --- 1. Регистрация ---
     log('--- Stage 1: Registration ---');
     let { req, res, resultPromise } = createMockHttp(
-        'POST', '/auth/register', 
-        { 'content-type': 'application/json' },
-        JSON.stringify({ name: 'Test User', login: 'testuser', password: 'password123' })
+        'POST', '/auth/register', {},
+        { name: 'Test User', login: 'testuser', password: 'password123' }
     );
-    requestHandler.handle(req, res);
-    req.emit('data', JSON.stringify({ name: 'Test User', login: 'testuser', password: 'password123' }));
-    req.emit('end');
+    await requestHandler.handle(req, res);
     let response = await resultPromise;
     log('Registration response:', response);
-    check(response.statusCode === 302, 'Successful registration should result in a redirect (302).');
-    check(response.headers.location === '/login?registered=true', 'Should redirect to login page with success flag.');
+    check(JSON.parse(response.body).redirectUrl === '/login?registered=true', 'Should redirect to login page with success flag.');
 
     // Проверяем, что пользователь создан в БД
-    const userConnector = connectorManager.getConnector('user').collection;
-    const user = await userConnector.findOne({ login: 'testuser' });
+    const userDb = connectorManager.getConnector('user').collection;
+    const user = await userDb.findOne({ login: 'testuser' });
     log('User in DB after registration:', user);
     check(user, 'User should be created in the database.');
     check(user.name === 'Test User', 'User should have the correct name.');
@@ -124,46 +112,37 @@ async function runAuthWorkflowTest(appPath) {
     // --- 2. Логин ---
     log('--- Stage 2: Login ---');
     ({ req, res, resultPromise } = createMockHttp(
-        'POST', '/auth/login', 
-        { 'content-type': 'application/json' },
-        JSON.stringify({ login: 'testuser', password: 'password123' })
+        'POST', '/auth/login', {},
+        { login: 'testuser', password: 'password122' } // Сначала с неверным паролем
     ));
-    requestHandler.handle(req, res);
-    req.emit('data', JSON.stringify({ login: 'testuser', password: 'password122' })); // Сначала с неверным паролем
-    req.emit('end');
+    await requestHandler.handle(req, res);
     response = await resultPromise;
-    check(response.headers.location === '/login?error=1', 'Login with wrong password should redirect with error.');
+    check(JSON.parse(response.body).redirectUrl === '/login?error=1', 'Login with wrong password should redirect with error.');
     
     // Теперь с верным паролем
     ({ req, res, resultPromise } = createMockHttp(
-        'POST', '/auth/login', 
-        { 'content-type': 'application/json' },
-        JSON.stringify({ login: 'testuser', password: 'password123' })
+        'POST', '/auth/login', {},
+        { login: 'testuser', password: 'password123' }
     ));
-    requestHandler.handle(req, res);
-    req.emit('data', JSON.stringify({ login: 'testuser', password: 'password123' }));
-    req.emit('end');
+    await requestHandler.handle(req, res);
     response = await resultPromise;
     log('Login response:', response);
-    check(response.statusCode === 302, 'Successful login should result in a redirect (302).');
-    check(response.headers.location === '/', 'Should redirect to the main page.');
+    check(JSON.parse(response.body).redirectUrl === '/', 'Should redirect to the main page.');
     const sessionCookie = response.headers['set-cookie'][0];
     check(sessionCookie.includes('session_id'), 'A session_id cookie should be set on login.');
 
 
     // --- 3. Доступ к защищенному роуту ---
     log('--- Stage 3: Accessing protected route ---');
-    // Сначала без куки
     ({ req, res, resultPromise } = createMockHttp('GET', '/protected'));
-    requestHandler.handle(req, res);
-    req.emit('end');
+    await requestHandler.handle(req, res);
     response = await resultPromise;
-    check(response.headers.location === '/login', 'Accessing protected route without session should redirect to login.');
+    check(response.statusCode === 302, 'Accessing protected route without session should redirect to login.');
+    check(response.headers.location === '/login', 'Redirect location should be /login.');
 
     // Теперь с куки
     ({ req, res, resultPromise } = createMockHttp('GET', '/protected', { cookie: sessionCookie }));
-    requestHandler.handle(req, res);
-    req.emit('end');
+    await requestHandler.handle(req, res);
     response = await resultPromise;
     check(response.statusCode === 200, 'Accessing protected route with session should be successful (200).');
     check(response.body === 'Protected Content', 'Protected route should return its content.');
@@ -172,18 +151,15 @@ async function runAuthWorkflowTest(appPath) {
     // --- 4. Выход ---
     log('--- Stage 4: Logout ---');
     ({ req, res, resultPromise } = createMockHttp('GET', '/auth/logout', { cookie: sessionCookie }));
-    requestHandler.handle(req, res);
-    req.emit('end');
+    await requestHandler.handle(req, res);
     response = await resultPromise;
     log('Logout response:', response);
     const expiredCookie = response.headers['set-cookie'][0];
-    check(response.headers.location === '/login', 'Logout should redirect to login page.');
+    check(JSON.parse(response.body).redirectUrl === '/login', 'Logout should redirect to login page.');
     check(expiredCookie.includes('max-age=-1'), 'Logout should set an expired cookie.');
 }
 
-
 // --- Экспорт Тестов ---
-
 module.exports = {
     'Authentication: Full user workflow (register, login, access, logout)': {
         options: {
@@ -194,11 +170,10 @@ module.exports = {
                     passwordField: 'passwordHash'
                 },
                 connectors: {
-                    user: { type: 'wise-json', collection: 'auth_test_users' },
+                    user: { type: 'wise-json', collection: 'auth_test_users', initialState: {items: []} },
                     session: { type: 'wise-json', collection: 'auth_test_sessions' }
                 },
                 routes: {
-                    // Используем роуты, аналогичные тем, что в документации
                     'POST /auth/register': {
                         type: 'action', reads: ['user'], writes: ['user'],
                         steps: [
@@ -229,10 +204,9 @@ module.exports = {
                         ]
                     },
                     'GET /protected': {
-                        type: 'action', // Для простоты сделаем action, а не view
+                        type: 'view', // Сделаем view для теста редиректа
                         auth: { required: true, failureRedirect: '/login' },
-                        steps: [],
-                        // Этот роут просто вернет 200 ОК, если аутентификация прошла
+                        // Для простого теста вернем текст напрямую, а не через рендеринг
                         handler: (req, res) => res.end('Protected Content')
                     },
                     'GET /auth/logout': {
