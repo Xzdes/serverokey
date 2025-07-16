@@ -136,40 +136,30 @@ async function handleSpaNavigation(event) {
         if (!response.ok) throw new Error(`SPA navigation failed: ${response.status}`);
         
         const payload = await response.json();
-
+        
         document.title = payload.title || document.title;
         
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ОЧИСТКА СТАРЫХ СТИЛЕЙ ---
-        // 1. Собираем имена всех стилей, которые есть на странице СЕЙЧАС.
         const existingStyleNames = new Set();
         document.querySelectorAll('style[data-component-name]').forEach(tag => {
             existingStyleNames.add(tag.getAttribute('data-component-name'));
         });
-
-        // 2. Собираем имена всех стилей, которые пришли от сервера.
         const newStyleNames = new Set((payload.styles || []).map(s => s.name));
-
-        // 3. Обновляем/добавляем новые стили.
-        (payload.styles || []).forEach(styleInfo => {
-            updateStyles(styleInfo.name, styleInfo.css);
-        });
-
-        // 4. Удаляем те старые стили, которых нет в новом ответе.
+        (payload.styles || []).forEach(styleInfo => updateStyles(styleInfo.name, styleInfo.css));
         existingStyleNames.forEach(oldName => {
             if (!newStyleNames.has(oldName)) {
-                const oldStyleTag = document.getElementById(`style-for-${oldName}`);
-                if (oldStyleTag) {
-                    oldStyleTag.remove();
-                }
+                document.getElementById(`style-for-${oldName}`)?.remove();
             }
         });
-        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         const mainContainer = document.getElementById('pageContent-container');
-        if (mainContainer && payload.content !== undefined) {
-            mainContainer.innerHTML = payload.content;
-        } else if (!mainContainer) {
-            console.error('[Engine] SPA Error: Main content container #pageContent-container not found.');
+        if (mainContainer) {
+            let newContent = '';
+            // Собираем HTML из всех присланных частей, оборачивая в контейнеры
+            for (const placeholder in payload.injectedParts) {
+                const html = payload.injectedParts[placeholder];
+                newContent += `<div id="${placeholder}-container">${html}</div>`;
+            }
+            mainContainer.innerHTML = newContent;
         }
         
         executeScripts(payload.scripts);
@@ -208,13 +198,11 @@ function initializeWebSocket() {
                 });
                 return;
             }
-
             if (isDebugMode) {
                 console.groupCollapsed(`[DEBUG] WebSocket Event Received: ${data.event}`);
                 console.log('Payload:', data.payload);
                 console.groupEnd();
             }
-
             document.querySelectorAll(`[atom-on-event="${data.event}"]`).forEach(element => {
                 const action = element.getAttribute('atom-action');
                 if (action) {

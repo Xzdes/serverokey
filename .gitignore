@@ -14,6 +14,7 @@ lerna-debug.log*
 # OS specific
 .DS_Store
 Thumbs.db
+/packages/kassa-app-example/wise-db-data
 
 # Serverokey specific
 # Игнорируем JSON-файлы с данными в любом приложении-примере

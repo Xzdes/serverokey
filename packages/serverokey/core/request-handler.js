@@ -48,8 +48,6 @@ class RequestHandler {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const routeKey = `${req.method} ${url.pathname}`;
         
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ПРОВЕРКА СИСТЕМНОГО ФАЙЛА В САМОМ НАЧАЛЕ ---
-        // Этот блок должен стоять ПЕРЕД любой другой логикой маршрутизации.
         if (routeKey === 'GET /engine-client.js') {
             const clientScriptPath = path.resolve(__dirname, '..', 'engine-client.js');
             try {
@@ -59,7 +57,7 @@ class RequestHandler {
                 console.error(`[Engine] CRITICAL: Could not read engine-client.js file.`, error);
                 res.writeHead(500).end('Internal Server Error');
             }
-            return; // Завершаем обработку
+            return;
         }
 
         let user = null;
@@ -100,34 +98,28 @@ class RequestHandler {
                 const isSpaRequest = req.headers['x-requested-with'] === 'ServerokeySPA';
 
                 if (isSpaRequest) {
-                    let spaContentHtml = '';
-                    const allStyles = [];
-                    const allScripts = [];
-
+                    const spaPayload = { title: '', styles: [], scripts: [], injectedParts: {} };
+                    
                     if (routeConfig.inject) {
                         for (const placeholder in routeConfig.inject) {
                             const componentName = routeConfig.inject[placeholder];
                             if (componentName) {
                                 const { html, styles, scripts } = await this.renderer.renderComponent(componentName, dataContext, url);
-                                spaContentHtml += `<div id="${placeholder}-container">${html}</div>`;
-                                if (styles) allStyles.push({ name: componentName, css: styles });
-                                if (scripts) allScripts.push(...scripts);
+                                // Отдаем чистый HTML, без оберток
+                                spaPayload.injectedParts[placeholder] = html; 
+                                if (styles) spaPayload.styles.push({ name: componentName, css: styles });
+                                if (scripts) spaPayload.scripts.push(...scripts);
                             }
                         }
                     }
-
+                    
                     const componentNameForTitle = routeConfig.inject?.pageContent || routeConfig.layout;
                     const componentConfig = this.manifest.components[componentNameForTitle];
-                    const pageTitle = (typeof componentConfig === 'object' && componentConfig.title) 
+                    spaPayload.title = (typeof componentConfig === 'object' && componentConfig.title) 
                         ? componentConfig.title 
                         : (this.manifest.globals?.appName || 'Serverokey App');
 
-                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({
-                        title: pageTitle,
-                        content: spaContentHtml,
-                        styles: allStyles,
-                        scripts: allScripts
-                    }));
+                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(spaPayload));
 
                 } else {
                     const html = await this.renderer.renderView(routeConfig, dataContext, url);
