@@ -21,7 +21,13 @@
   этот компонент находится на странице.
 -->
 <style>
-    :host .cashier-page-wrapper {
+    /* 
+      *** КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ***
+      Убираем псевдоселектор `:host`, так как эти стили инлайновые
+      и не проходят через скоупинг рендерера. Они должны применяться
+      напрямую к классам внутри этого HTML-фрагмента.
+    */
+    .cashier-page-wrapper {
         display: flex;
         width: 100%;
         gap: 24px;
@@ -29,7 +35,7 @@
     }
 
     @media (max-width: 800px) {
-        :host .cashier-page-wrapper {
+        .cashier-page-wrapper {
             flex-direction: column;
             align-items: stretch; 
         }
