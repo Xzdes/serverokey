@@ -151,6 +151,12 @@ class Renderer {
 
         const globalContext = await this._getGlobalContext(reqUrl);
         const finalRenderContext = { ...globalContext, ...dataContext };
+        
+        // --- ИЗМЕНЕНИЕ ЛОГИКИ ЗАГОЛОВКА ---
+        // Приоритет: launch.window.title -> globals.appName -> 'Serverokey'
+        const appTitle = this.manifest.launch?.window?.title || finalRenderContext.globals?.appName || 'Serverokey';
+        finalRenderContext.globals = { ...(finalRenderContext.globals || {}), appName: appTitle };
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         const { html, styles, scripts } = await this.renderComponentRecursive(
             routeConfig.layout, 

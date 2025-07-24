@@ -2,22 +2,22 @@
 require('dotenv').config();
 const { createServer } = require('serverokey');
 
-const PORT = process.env.PORT || 3000;
 const appPath = __dirname;
 
 try {
   const debugMode = process.argv.includes('--debug');
 
-  // Деструктурируем ответ от createServer, чтобы получить только экземпляр сервера.
-  const { server } = createServer(appPath, { debug: debugMode });
+  // Мы больше не передаем порт в createServer. Ядро само решит, какой порт использовать.
+  // Мы также больше не храним результат, так как логика запуска теперь внутри ядра.
+  createServer(appPath, { debug: debugMode });
 
-  server.listen(PORT, () => {
-    console.log(`🚀 Kassa App running on http://localhost:${PORT}`);
-    console.log(`[Serverokey] Application root: ${appPath}`);
-    if (debugMode) {
-      console.log('🐞 [Debug Mode] ON. Verbose logging is enabled.');
-    }
-  });
+  // Логирование перенесено внутрь движка, здесь оно больше не нужно.
+  // Это делает код приложения-примера чище.
+  console.log(`[Kassa App] Application startup initiated by Serverokey...`);
+  if (debugMode) {
+    console.log('🐞 [Debug Mode] ON. Verbose logging is enabled.');
+  }
+
 } catch (error) {
   console.error('💥 [Serverokey] Failed to start server:');
   console.error(error);
