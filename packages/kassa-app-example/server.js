@@ -4,22 +4,25 @@ const { createServer } = require('serverokey');
 
 const appPath = __dirname;
 
-try {
-  const debugMode = process.argv.includes('--debug');
+// --- ИЗМЕНЕНИЕ: Оборачиваем запуск в async-функцию ---
+async function main() {
+  try {
+    const debugMode = process.argv.includes('--debug');
 
-  // Мы больше не передаем порт в createServer. Ядро само решит, какой порт использовать.
-  // Мы также больше не храним результат, так как логика запуска теперь внутри ядра.
-  createServer(appPath, { debug: debugMode });
+    console.log(`[Kassa App] Initiating Serverokey startup...`);
+    if (debugMode) {
+      console.log('🐞 [Debug Mode] ON. Verbose logging is enabled.');
+    }
 
-  // Логирование перенесено внутрь движка, здесь оно больше не нужно.
-  // Это делает код приложения-примера чище.
-  console.log(`[Kassa App] Application startup initiated by Serverokey...`);
-  if (debugMode) {
-    console.log('🐞 [Debug Mode] ON. Verbose logging is enabled.');
+    // Ждем, пока createServer полностью отработает и запустит сервер
+    await createServer(appPath, { debug: debugMode });
+
+  } catch (error) {
+    console.error('💥 [Serverokey] Failed to start server:');
+    console.error(error);
+    process.exit(1);
   }
-
-} catch (error) {
-  console.error('💥 [Serverokey] Failed to start server:');
-  console.error(error);
-  process.exit(1);
 }
+
+// Запускаем нашу главную функцию
+main();

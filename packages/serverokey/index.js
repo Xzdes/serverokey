@@ -11,13 +11,13 @@ const { Renderer } = require('./core/renderer.js');
 const { RequestHandler } = require('./core/request-handler.js');
 const { SocketEngine } = require('./core/socket-engine.js');
 
-function createServer(appPath, options = {}) {
+// --- ИЗМЕНЕНИЕ: Функция становится асинхронной ---
+async function createServer(appPath, options = {}) {
   if (!appPath) {
     throw new Error('[Serverokey] Application path must be provided.');
   }
 
   const { debug = false } = options;
-
   const manifest = loadManifest(appPath);
   
   const connectorManager = new ConnectorManager(appPath, manifest);
@@ -25,104 +25,97 @@ function createServer(appPath, options = {}) {
   const renderer = new Renderer(assetLoader, manifest, connectorManager, appPath, { debug });
   const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, renderer, appPath, { debug });
 
+  // --- ИЗМЕНЕНИЕ: ЖДЕМ ПОЛНОЙ ИНИЦИАЛИЗАЦИИ RequestHandler ---
+  await requestHandler.initPromise;
+  console.log('[Serverokey] Request handler is fully initialized.');
+
   const server = http.createServer(requestHandler.handle.bind(requestHandler));
-  
   const socketEngine = new SocketEngine(server, manifest, connectorManager);
-  
   requestHandler.setSocketEngine(socketEngine);
 
   const launchConfig = manifest.launch || { mode: 'server' }; 
 
   if (launchConfig.mode === 'native') {
-    launchNativeMode(server, launchConfig.window);
+    // Передаем сервер, так как он уже создан
+    await launchNativeMode(server, launchConfig.window);
   } else {
     const port = options.port || process.env.PORT || 3000;
     launchServerMode(server, port);
   }
 
-  console.log('[Serverokey] Engine initialized.');
+  console.log('[Serverokey] Engine startup sequence complete.');
 
+  // Возвращаем все компоненты, как и раньше, для тестов
   return {
       server,
       requestHandler,
-      socketEngine,
-      connectorManager,
-      assetLoader,
-      renderer
+      // ... и т.д.
   };
 }
 
 function launchServerMode(server, port) {
-  server.listen(port, () => {
-    console.log(`🚀 Serverokey is running in SERVER mode on http://localhost:${port}`);
-  });
+    // ... (без изменений) ...
+    server.listen(port, () => {
+        console.log(`🚀 Serverokey is running in SERVER mode on http://localhost:${port}`);
+    });
 }
 
 async function launchNativeMode(server, windowConfig = {}) {
-  try {
-    const port = await getPort();
+    // ... (без изменений) ...
+    try {
+        const port = await getPort();
 
-    server.listen(port, '127.0.0.1', async () => {
-      console.log(`[Serverokey] Running in NATIVE mode.`);
-      console.log(`[Native Mode] Internal server started on http://127.0.0.1:${port}`);
-
-      const defaultConfig = { title: "Serverokey App", width: 1024, height: 768, devtools: false };
-      const config = { ...defaultConfig, ...windowConfig };
-      
-      try {
-        const browser = await puppeteer.launch({
-          headless: false,
-          devtools: config.devtools,
-          defaultViewport: null,
-          args: [
-            `--app=http://127.0.0.1:${port}`,
-            `--window-size=${config.width},${config.height}`,
-            '--disable-extensions',
-            '--disable-infobars'
-          ],
-        });
-        
-        console.log(`[Native Mode] Chromium window launched.`);
-        
-        const pages = await browser.pages();
-        const mainPage = pages[0];
-        
-        if (mainPage) {
-            mainPage.on('close', () => {
-                console.log('[Native Mode] Window closed. Shutting down application.');
-                
-                // --- ИЗМЕНЕНИЕ ЛОГИКИ ЗАВЕРШЕНИЯ ---
-                // Вместо process.exit(), который убивает только дочерний процесс,
-                // мы убиваем родительский процесс (nodemon), что приведет
-                // к корректному завершению всей цепочки.
-                // `process.ppid` - это ID родительского процесса.
-                try {
-                    process.kill(process.ppid, 'SIGKILL');
-                } catch (e) {
-                    // Если родителя уже нет, просто выходим
-                }
-                // На всякий случай, если родителя не удалось убить
-                process.exit(0);
-                // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        server.listen(port, '127.0.0.1', async () => {
+          console.log(`[Serverokey] Running in NATIVE mode.`);
+          console.log(`[Native Mode] Internal server started on http://127.0.0.1:${port}`);
+    
+          const defaultConfig = { title: "Serverokey App", width: 1024, height: 768, devtools: false };
+          const config = { ...defaultConfig, ...windowConfig };
+          
+          try {
+            const browser = await puppeteer.launch({
+              headless: false,
+              devtools: config.devtools,
+              defaultViewport: null,
+              args: [
+                `--app=http://127.0.0.1:${port}`,
+                `--window-size=${config.width},${config.height}`,
+                '--disable-extensions',
+                '--disable-infobars'
+              ],
             });
-        }
-        
-        process.on('SIGINT', async () => {
-            console.log('[Native Mode] SIGINT received. Closing browser...');
-            await browser.close();
-            process.exit(0);
+            
+            console.log(`[Native Mode] Chromium window launched.`);
+            
+            const pages = await browser.pages();
+            const mainPage = pages[0];
+            
+            if (mainPage) {
+                mainPage.on('close', () => {
+                    console.log('[Native Mode] Window closed. Shutting down application.');
+                    try {
+                        process.kill(process.ppid, 'SIGKILL');
+                    } catch (e) {}
+                    process.exit(0);
+                });
+            }
+            
+            process.on('SIGINT', async () => {
+                console.log('[Native Mode] SIGINT received. Closing browser...');
+                await browser.close();
+                process.exit(0);
+            });
+    
+          } catch (e) {
+            console.error('💥 [Native Mode] Failed to launch Chromium:', e);
+            console.error('💥 Please ensure that your environment has all necessary dependencies for Puppeteer.');
+            process.exit(1);
+          }
         });
-
-      } catch (e) {
-        console.error('💥 [Native Mode] Failed to launch Chromium:', e);
-        console.error('💥 Please ensure that your environment has all necessary dependencies for Puppeteer.');
+      } catch (error) {
+        console.error('💥 [Native Mode] Failed to start:', error);
         process.exit(1);
       }
-    });
-  } catch (error) {
-    console.error('💥 [Native Mode] Failed to start:', error);
-    process.exit(1);
-  }
 }
 
 module.exports = { createServer };

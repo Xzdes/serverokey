@@ -17,20 +17,27 @@ class RequestHandler {
         this.authEngine = null;
         this.userConnector = null;
         this.socketEngine = null;
-        this.authInitPromise = this._initializeAuthEngine();
+        this.initPromise = this._initialize(); 
     }
 
-    setSocketEngine(socketEngine) {
-        this.socketEngine = socketEngine;
-    }
+    async _initialize() {
+        await this.connectorManager.loadAll();
 
-    async _initializeAuthEngine() {
         if (this.manifest.auth) {
             try {
                 this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
-                await Promise.all([this.userConnector.initPromise, sessionConnector.initPromise]);
-                this.authEngine = new AuthEngine(this.manifest, this.userConnector.collection, sessionConnector.collection);
+
+                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ЖДЕМ ИНИЦИАЛИЗАЦИИ КОНКРЕТНЫХ КОННЕКТОРОВ ---
+                // Убеждаемся, что и userConnector, и sessionConnector полностью готовы к работе
+                // (включая их внутреннюю асинхронную инициализацию, например, подключение к БД).
+                await Promise.all([
+                    this.userConnector.initPromise,
+                    sessionConnector.initPromise
+                ]);
+                // --------------------------------------------------------------------------
+
+                this.authEngine = new AuthEngine(this.manifest, this.userConnector, sessionConnector);
             } catch (e) {
                 console.error("CRITICAL: Failed to initialize AuthEngine. Auth will be disabled.", e);
                 this.authEngine = null;
@@ -38,9 +45,13 @@ class RequestHandler {
         }
     }
 
+    setSocketEngine(socketEngine) {
+        this.socketEngine = socketEngine;
+    }
+
     async handle(req, res) {
         try {
-            await this.authInitPromise;
+            await this.initPromise; 
             const url = new URL(req.url, `http://${req.headers.host}`);
 
             if (req.url === '/engine-client.js') {
@@ -62,8 +73,9 @@ class RequestHandler {
             let user = null;
             if (this.authEngine) {
                 const session = await this.authEngine.getSession(req);
-                if (session && session.userId) {
-                    user = await this.userConnector.collection.getById(session.userId);
+                if (session && session.userId && this.userConnector) {
+                    // Используем userCollection напрямую из authEngine, где он уже точно есть
+                    user = await this.authEngine.userCollection.getById(session.userId);
                 }
             }
 
@@ -72,7 +84,11 @@ class RequestHandler {
                 if (req.headers['x-requested-with'] === 'ServerokeySPA') {
                     return this.sendResponse(res, 200, { redirectUrl }, 'application/json');
                 }
-                return this.authEngine.redirect(res, redirectUrl);
+                if (this.authEngine) {
+                    return this.authEngine.redirect(res, redirectUrl);
+                } else {
+                    return this.sendResponse(res, 500, 'Authentication engine is not configured or failed to start.');
+                }
             }
 
             if (routeConfig.type === 'view') {
@@ -81,20 +97,20 @@ class RequestHandler {
 
                 if (req.headers['x-requested-with'] === 'ServerokeySPA') {
                     const spaPayload = { title: '', injectedParts: {}, styles: [], scripts: [] };
-                    const mainContentPlaceholder = 'pageContent'; // Контейнер для основного контента
+                    const mainContentPlaceholder = 'pageContent';
+                    
+                    const layoutConfig = this.manifest.components[routeConfig.layout] || {};
+                    const pageComponentKey = routeConfig.inject?.[mainContentPlaceholder];
+                    const pageComponentConfig = this.manifest.components[pageComponentKey] || {};
+                    
+                    spaPayload.title = pageComponentConfig.title || layoutConfig.title || this.manifest.launch?.window?.title || this.manifest.globals?.appName || 'Serverokey App';
 
-                    // Рендерим компонент, который должен быть вставлен в главный контейнер
                     const mainComponentToRender = routeConfig.inject[mainContentPlaceholder];
                     if (mainComponentToRender) {
                         const result = await this.renderer.renderComponentRecursive(mainComponentToRender, dataContext, routeConfig.inject, url);
                         spaPayload.injectedParts[mainContentPlaceholder] = result.html;
                         spaPayload.styles.push(...result.styles);
                         spaPayload.scripts.push(...result.scripts);
-
-                        const mainComponentConfig = this.manifest.components[mainComponentToRender] || {};
-                         spaPayload.title = (typeof mainComponentConfig === 'object' && mainComponentConfig.title) 
-                            ? mainComponentConfig.title 
-                            : (this.manifest.globals?.appName || 'Serverokey App');
                     }
                     
                     return this.sendResponse(res, 200, spaPayload, 'application/json');

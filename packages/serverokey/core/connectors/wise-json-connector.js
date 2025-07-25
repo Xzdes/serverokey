@@ -1,39 +1,35 @@
-// core/connectors/wise-json-connector.js
+// packages/serverokey/core/connectors/wise-json-connector.js
 const path = require('path');
-const WiseJSON = require('wise-json-db/wise-json');
 const { Migrator } = require('../migrator.js');
 
-let dbInstance = null;
-let dbInitPromise = null;
+// --- УДАЛЯЕМ ГЛОБАЛЬНЫЙ ЭКЗЕМПЛЯР ОТСЮДА ---
+// let dbInstance = null;
+// let dbInitPromise = null;
+// -------------------------------------------
 
 class WiseJsonConnector {
-    constructor(name, config, appPath) {
+    // --- ИЗМЕНЕНИЕ: Принимаем dbInstance в конструкторе ---
+    constructor(name, config, appPath, dbInstance) {
         this.name = name;
         this.config = config;
         this.collectionName = config.collection || name;
         this.appPath = appPath;
         this.collection = null;
         this.migrator = new Migrator(config.migrations);
-
+        
+        // --- ИЗМЕНЕНИЕ: Проверяем, что экземпляр передан ---
         if (!dbInstance) {
-            const dbPath = path.join(this.appPath, 'wise-db-data');
-            dbInstance = new WiseJSON(dbPath);
-            dbInitPromise = dbInstance.init().catch(err => {
-                console.error("[WiseJsonConnector] CRITICAL: Failed to initialize WiseJSON DB.", err);
-                dbInstance = null;
-                throw err;
-            });
+            throw new Error("[WiseJsonConnector] CRITICAL: DB instance was not provided.");
         }
+        this.dbInstance = dbInstance;
+        // ----------------------------------------------------
 
         this.initPromise = this._initialize();
     }
     
     async _initialize() {
-        await dbInitPromise;
-        if (!dbInstance) {
-             throw new Error("WiseJSON DB instance is not available due to an earlier initialization error.");
-        }
-        this.collection = await dbInstance.getCollection(this.collectionName);
+        // Мы больше не ждем глобальный промис, так как экземпляр уже инициализирован
+        this.collection = await this.dbInstance.getCollection(this.collectionName);
     }
 
     async read() {
@@ -53,8 +49,6 @@ class WiseJsonConnector {
         const migrationResult = this.migrator.migrate(data);
         if (migrationResult.changed) {
             console.log(`[Migrator] Data for '${this.name}' has been migrated. Resaving...`);
-            // Здесь важно передать именно объект `data`, а не `migrationResult.data`,
-            // так как migrator может вернуть только часть данных (например, только items).
             await this.write(data);
         }
 
@@ -74,7 +68,9 @@ class WiseJsonConnector {
         const docsToSave = dataToSave.items || [];
         delete dataToSave.items;
         
-        const txn = dbInstance.beginTransaction();
+        // --- ИЗМЕНЕНИЕ: Используем переданный dbInstance ---
+        const txn = this.dbInstance.beginTransaction();
+        // ------------------------------------------------
         try {
             const txnCollection = txn.collection(this.collectionName);
 
@@ -84,7 +80,6 @@ class WiseJsonConnector {
                 await txnCollection.insertMany(docsToSave);
             }
             
-            // Удаляем возможное поле _id из мета-данных, чтобы не конфликтовать
             const metaData = { ...dataToSave };
             delete metaData._id;
 

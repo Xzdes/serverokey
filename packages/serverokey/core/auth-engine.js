@@ -1,31 +1,34 @@
-// core/auth-engine.js
+// packages/serverokey/core/auth-engine.js
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const cookie = require('cookie');
 
 class AuthEngine {
-    constructor(manifest, userCol, sessionCol) {
+    // --- ИЗМЕНЕНИЕ: Принимаем коннекторы целиком ---
+    constructor(manifest, userConnector, sessionConnector) {
         this.config = manifest.auth;
-        this.userCollection = userCol;
-        this.sessionCollection = sessionCol;
+        
+        // --- ИЗМЕНЕНИЕ: Сохраняем коннекторы и извлекаем коллекции из них ---
+        this.userConnector = userConnector;
+        this.sessionConnector = sessionConnector;
+        this.userCollection = userConnector?.collection;
+        this.sessionCollection = sessionConnector?.collection;
 
         if (!this.config) {
             throw new Error("[AuthEngine] 'auth' section is missing in manifest.js");
         }
         if (!this.userCollection) {
-             throw new Error("[AuthEngine] User collection was not provided.");
+             throw new Error("[AuthEngine] User collection was not provided or connector is invalid.");
         }
         if (!this.sessionCollection) {
-            throw new Error("[AuthEngine] Session collection was not provided.");
+            throw new Error("[AuthEngine] Session collection was not provided or connector is invalid.");
         }
     }
 
     async createSession(user) {
+        // ... (остальной код без изменений) ...
         const sessionId = crypto.randomBytes(32).toString('hex');
         
-        // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        // Сессия теперь хранит ТОЛЬКО ID пользователя. 
-        // Больше никакого копирования полей.
         const sessionData = {
             _id: sessionId,
             userId: user._id,
@@ -37,6 +40,7 @@ class AuthEngine {
     }
 
     async getSession(req) {
+        // ... (остальной код без изменений) ...
         const cookies = cookie.parse(req.headers.cookie || '');
         const sessionId = cookies.session_id;
         if (!sessionId) return null;
@@ -46,6 +50,7 @@ class AuthEngine {
     }
 
     async clearSession(req, res) {
+        // ... (остальной код без изменений) ...
         const cookies = cookie.parse(req.headers.cookie || '');
         const sessionId = cookies.session_id;
         if (sessionId) {
@@ -57,6 +62,7 @@ class AuthEngine {
     }
 
     async register(body) {
+        // ... (остальной код без изменений) ...
         const { identityField, passwordField } = this.config;
         const identity = body[identityField];
         const password = body.password;
@@ -74,7 +80,7 @@ class AuthEngine {
         const passwordHash = await bcrypt.hash(password, saltRounds);
 
         const newUser = {
-            ...body, // Копируем все поля из формы (name, etc.)
+            ...body,
             [identityField]: identity,
             [passwordField]: passwordHash
         };
@@ -86,6 +92,7 @@ class AuthEngine {
     }
 
     async login(body) {
+        // ... (остальной код без изменений) ...
         const { identityField, passwordField } = this.config;
         const identity = body[identityField];
         const password = body.password;
@@ -108,6 +115,7 @@ class AuthEngine {
     }
 
     redirect(res, location) {
+        // ... (остальной код без изменений) ...
         res.writeHead(302, { 'Location': location });
         res.end();
     }
