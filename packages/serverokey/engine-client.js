@@ -101,8 +101,13 @@ async function handleAction(event) {
         const payload = await response.json();
         if (isDebugMode) console.log(`[ACTION] Response:`, payload);
 
-        if (payload.redirectUrl) {
-            handleSpaRedirect(payload.redirectUrl);
+        if (payload.redirect) {
+            if (typeof payload.redirect === 'object' && payload.redirect.full) {
+                window.location.href = payload.redirect.url;
+            } else {
+                const redirectUrl = typeof payload.redirect === 'string' ? payload.redirect : payload.redirect.url;
+                handleSpaRedirect(redirectUrl);
+            }
             return;
         }
         
@@ -116,7 +121,6 @@ async function handleAction(event) {
             const selectionStart = activeElement?.selectionStart ?? null;
             const selectionEnd = activeElement?.selectionEnd ?? null;
             
-            // *** ИСПРАВЛЕНИЕ: Используем новую, более простую логику обновления стилей ***
             const newComponentId = (payload.html.match(/data-component-id="([^"]+)"/) || [])[1];
             if (payload.styles && newComponentId) {
                 updateStyleForAction(payload.componentName, payload.styles, newComponentId);
@@ -167,13 +171,17 @@ async function handleSpaNavigation(event) {
         const payload = await response.json();
         if (isDebugMode) console.log('[SPA] Received payload:', payload);
 
-        if (payload.redirectUrl) {
-            handleSpaRedirect(payload.redirectUrl);
+        if (payload.redirect) {
+            if (typeof payload.redirect === 'object' && payload.redirect.full) {
+                 window.location.href = payload.redirect.url;
+            } else {
+                 const redirectUrl = typeof payload.redirect === 'string' ? payload.redirect : payload.redirect.url;
+                 handleSpaRedirect(redirectUrl);
+            }
             return;
         }
         
         document.title = payload.title || document.title;
-        // *** ИСПРАВЛЕНИЕ: Используем новую функцию для полного обновления стилей ***
         updateStylesForSpa(payload.styles);
 
         const mainContainerId = 'pageContent-container';

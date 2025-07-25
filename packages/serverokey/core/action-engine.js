@@ -1,9 +1,17 @@
 // packages/serverokey/core/action-engine.js
 const http = require('http');
-const https = require('https'); // 'https' должно быть строкой
+const https = require('https');
 const { z, ZodError } = require('zod');
 const path = require('path');
 
+/**
+ * Безопасно вычисляет JavaScript-выражение в заданном контексте.
+ * @param {string} expression - Выражение для вычисления.
+ * @param {object} context - Контекст с данными (data, user, body, context).
+ * @param {string} appPath - Путь к приложению для разрешения модулей.
+ * @param {boolean} debug - Флаг отладки.
+ * @returns {*} - Результат вычисления или undefined в случае ошибки.
+ */
 function evaluate(expression, context, appPath, debug = false) {
     if (typeof expression !== 'string') return expression;
 
@@ -29,10 +37,14 @@ function evaluate(expression, context, appPath, debug = false) {
         return func(context, smartRequire);
 
     } catch (error) {
+        // Если это ошибка валидации Zod, мы НЕ "прощаем" ее, а пробрасываем наверх,
+        // чтобы ActionEngine мог ее перехватить и остановить выполнение.
         if (error instanceof ZodError) {
             throw error;
         }
 
+        // Для всех остальных ошибок (синтаксис, доступ к полям) сохраняем старое поведение:
+        // выводим предупреждение и возвращаем undefined.
         if (debug) {
             console.warn(`[ActionEngine] Evaluate warning for expression "${expression}": ${error.message}`);
         }
@@ -40,6 +52,11 @@ function evaluate(expression, context, appPath, debug = false) {
     }
 }
 
+/**
+ * Выполняет GET-запрос к внешнему API.
+ * @param {string} url - URL для запроса.
+ * @returns {Promise<object>} - Промис, который разрешается с JSON-ответом.
+ */
 function httpGet(url) {
     const client = url.startsWith('https://') ? https : http;
     const REQUEST_TIMEOUT = 5000;
@@ -83,11 +100,9 @@ class ActionEngine {
         this.debug = debug;
         this.context._internal = {}; 
         
-        // --- НОВОЕ ИЗМЕНЕНИЕ: ЛОГИРОВАНИЕ BODY ---
         if (this.debug && this.context.body && Object.keys(this.context.body).length > 0) {
             console.log('🐞 [ActionEngine] Executing with body:', this.context.body);
         }
-        // -----------------------------------------
     }
 
     async run(steps) {
@@ -135,7 +150,8 @@ class ActionEngine {
             } else if (step['auth:logout']) {
                 this.context._internal.logout = true;
             } else if (step['client:redirect']) {
-                this.context._internal.redirectUrl = evaluate(step['client:redirect'], this.context, this.appPath, this.debug);
+                const redirectValue = evaluate(step['client:redirect'], this.context, this.appPath, this.debug);
+                this.context._internal.redirect = redirectValue;
                 this.context._internal.interrupt = true;
             } 
             else if (step.run) {

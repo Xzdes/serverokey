@@ -28,14 +28,10 @@ class RequestHandler {
                 this.userConnector = this.connectorManager.getConnector(this.manifest.auth.userConnector);
                 const sessionConnector = this.connectorManager.getConnector('session');
 
-                // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ЖДЕМ ИНИЦИАЛИЗАЦИИ КОНКРЕТНЫХ КОННЕКТОРОВ ---
-                // Убеждаемся, что и userConnector, и sessionConnector полностью готовы к работе
-                // (включая их внутреннюю асинхронную инициализацию, например, подключение к БД).
                 await Promise.all([
                     this.userConnector.initPromise,
                     sessionConnector.initPromise
                 ]);
-                // --------------------------------------------------------------------------
 
                 this.authEngine = new AuthEngine(this.manifest, this.userConnector, sessionConnector);
             } catch (e) {
@@ -74,7 +70,6 @@ class RequestHandler {
             if (this.authEngine) {
                 const session = await this.authEngine.getSession(req);
                 if (session && session.userId && this.userConnector) {
-                    // Используем userCollection напрямую из authEngine, где он уже точно есть
                     user = await this.authEngine.userCollection.getById(session.userId);
                 }
             }
@@ -82,7 +77,7 @@ class RequestHandler {
             if (routeConfig.auth?.required && !user) {
                 const redirectUrl = routeConfig.auth.failureRedirect || '/login';
                 if (req.headers['x-requested-with'] === 'ServerokeySPA') {
-                    return this.sendResponse(res, 200, { redirectUrl }, 'application/json');
+                    return this.sendResponse(res, 200, { redirect: redirectUrl }, 'application/json');
                 }
                 if (this.authEngine) {
                     return this.authEngine.redirect(res, redirectUrl);
@@ -177,8 +172,8 @@ class RequestHandler {
 
         if (res) {
             const responsePayload = {};
-            if (internalActions.redirectUrl) {
-                responsePayload.redirectUrl = internalActions.redirectUrl;
+            if (internalActions.redirect) {
+                responsePayload.redirect = internalActions.redirect;
             } else if (routeConfig.update) {
                 const currentUrl = req ? new URL(req.url, `http://${req.headers.host}`) : null;
                 const componentRenderContext = { data: finalContext.data, user: finalContext.user, globals: this.manifest.globals };

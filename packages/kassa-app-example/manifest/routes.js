@@ -16,8 +16,8 @@ module.exports = {
       layout: 'mainLayout',
       reads: ['user', 'receipt', 'viewState', 'positions'],
       inject: { 
-        'pageContent': 'cashierPage', // <-- В главный контейнер вставляем обертку для кассы
-        'positionsList': 'positionsList', // <-- В плейсхолдеры обертки вставляем сами компоненты
+        'pageContent': 'cashierPage',
+        'positionsList': 'positionsList',
         'receipt': 'receipt' 
       }, 
       auth: { required: true, failureRedirect: '/login' }
@@ -48,7 +48,14 @@ module.exports = {
         { "set": "context.bcrypt", "to": "require('bcrypt')" },
         {
           "if": "context.userToLogin && context.bcrypt.compareSync(body.password, context.userToLogin.passwordHash)",
-          "then": [ { "auth:login": "context.userToLogin" }, { "client:redirect": "'/'" } ],
+          "then": [ 
+            { "auth:login": "context.userToLogin" }, 
+            // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+            // Вместо того чтобы отдавать команду SPA-редиректа, мы добавим специальный
+            // флаг 'full', который engine-client.js поймет как команду полной перезагрузки.
+            // Если флаг не указан, будет SPA-редирект. Это дает нам гибкость.
+            { "client:redirect": "{ url: '/', full: true }" } 
+          ],
           "else": [ { "client:redirect": "'/login?error=1'" } ]
         }
       ]
@@ -73,11 +80,13 @@ module.exports = {
         }
       ]
     },
+    // ... остальной код без изменений ...
     'GET /auth/logout': {
       type: 'action',
       steps: [
         { "auth:logout": true },
-        { "client:redirect": "'/login'" }
+        // --- ИЗМЕНЕНИЕ ЗДЕСЬ (для консистентности) ---
+        { "client:redirect": "{ url: '/login', full: true }" }
       ]
     },
     'POST /action/addItem': {

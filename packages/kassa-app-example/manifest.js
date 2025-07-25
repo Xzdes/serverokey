@@ -39,7 +39,7 @@ module.exports = {
   // --- НОВАЯ СЕКЦИЯ: Конфигурация запуска ---
   launch: {
     // Указываем, что хотим запуститься в нативном режиме native, в режиме сервера server
-    mode: 'server', 
+    mode: 'native', 
     
     // Настройки для окна Chromium
     window: {
