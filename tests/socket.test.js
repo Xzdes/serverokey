@@ -1,3 +1,4 @@
+// tests/socket.test.js
 const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
@@ -43,11 +44,12 @@ async function runSocketEngineTest(appPath) {
 
     try {
         log('Starting a temporary Serverokey server...');
-        // Правильно извлекаем экземпляр сервера из объекта
-        const serverComponents = createServer(appPath);
+        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавляем await ---
+        const serverComponents = await createServer(appPath, { port: PORT });
         server = serverComponents.server;
         
-        await new Promise(resolve => server.listen(PORT, resolve));
+        // --- Упрощение: createServer теперь сам запускает listen, так что эта строка не нужна ---
+        // await new Promise(resolve => server.listen(PORT, resolve));
         log(`Server is listening on port ${PORT}`);
 
         const receivedMessages = [];
@@ -140,13 +142,12 @@ async function runSocketEngineTest(appPath) {
     }
 }
 
-
-// --- Экспорт Теста ---
-
 module.exports = {
     'SocketEngine: Should broadcast changes to clients': {
         options: {
             manifest: {
+                // --- Добавляем launch.mode, чтобы тест запускался в режиме сервера ---
+                launch: { "mode": "server" },
                 sockets: {
                     "cart-updates": {
                       "watch": "cart",
