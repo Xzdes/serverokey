@@ -1,7 +1,7 @@
 // tests/request-handler.test.js
 const path = require('path');
 const http = require('http');
-const { Readable } = require('stream'); // Импортируем Readable
+const { Readable } = require('stream');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -31,19 +31,15 @@ function check(condition, description, actual) {
     }
 }
 
-// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ-ПОМОЩНИК ***
 function createMockHttp(method, url, headers = {}, body = '') {
-    // Создаем настоящий читаемый поток из тела запроса
     const reqStream = Readable.from(body);
-    // Прикрепляем к нему нужные свойства HTTP запроса
     Object.assign(reqStream, {
         method: method,
         url: url,
         headers: { host: 'localhost:3000', ...headers },
-        socket: {} // Минимальный мок для сокета
+        socket: {}
     });
     
-    // Используем его как наш `req`
     const req = reqStream;
     const res = new http.ServerResponse(req);
     const chunks = [];
@@ -56,7 +52,6 @@ function createMockHttp(method, url, headers = {}, body = '') {
                 body: Buffer.concat(chunks).toString('utf8')
             });
         });
-        // Перехватываем данные, которые пишет res.end()
         const originalWrite = res.write;
         const originalEnd = res.end;
         res.write = (chunk, encoding, cb) => {
@@ -84,7 +79,10 @@ async function runRequestHandlerTests(appPath) {
     const connectorManager = new ConnectorManager(appPath, manifest);
     const assetLoader = new AssetLoader(appPath, manifest);
     const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, null, appPath);
-    await requestHandler.authInitPromise; // Дождемся инициализации
+    
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    // Меняем authInitPromise на initPromise
+    await requestHandler.initPromise; 
     log('Environment setup complete.');
 
     // --- Сценарий 1: 404 Not Found ---

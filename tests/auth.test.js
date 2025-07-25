@@ -1,7 +1,7 @@
 // tests/auth.test.js
 const path = require('path');
 const http = require('http'); 
-const { Readable } = require('stream'); // Импортируем Readable
+const { Readable } = require('stream');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -41,15 +41,15 @@ function setupAuthEnvironment(appPath) {
     const requestHandler = new RequestHandler(manifest, connectorManager, assetLoader, null, appPath);
     
     return new Promise(resolve => {
-        // Дожидаемся полной инициализации AuthEngine
-        requestHandler.authInitPromise.then(() => {
+        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        // Меняем authInitPromise на initPromise
+        requestHandler.initPromise.then(() => {
             log('Environment setup complete.');
             resolve({ requestHandler, connectorManager });
         });
     });
 }
 
-// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ-ПОМОЩНИК ***
 function createMockHttp(method, url, headers = {}, body = '') {
     const reqStream = Readable.from(JSON.stringify(body));
     Object.assign(reqStream, {
@@ -96,7 +96,8 @@ async function runAuthWorkflowTest(appPath) {
     await requestHandler.handle(req, res);
     let response = await resultPromise;
     log('Registration response:', response);
-    check(JSON.parse(response.body).redirectUrl === '/login?registered=true', 'Should redirect to login page with success flag.');
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ (ответ теперь содержит объект redirect) ---
+    check(JSON.parse(response.body).redirect === '/login?registered=true', 'Should redirect to login page with success flag.');
 
     // Проверяем, что пользователь создан в БД
     const userDb = connectorManager.getConnector('user').collection;
@@ -117,7 +118,7 @@ async function runAuthWorkflowTest(appPath) {
     ));
     await requestHandler.handle(req, res);
     response = await resultPromise;
-    check(JSON.parse(response.body).redirectUrl === '/login?error=1', 'Login with wrong password should redirect with error.');
+    check(JSON.parse(response.body).redirect === '/login?error=1', 'Login with wrong password should redirect with error.');
     
     // Теперь с верным паролем
     ({ req, res, resultPromise } = createMockHttp(
@@ -127,7 +128,9 @@ async function runAuthWorkflowTest(appPath) {
     await requestHandler.handle(req, res);
     response = await resultPromise;
     log('Login response:', response);
-    check(JSON.parse(response.body).redirectUrl === '/', 'Should redirect to the main page.');
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ (ответ теперь содержит объект redirect) ---
+    check(JSON.parse(response.body).redirect.url === '/', 'Should redirect to the main page.');
+    check(JSON.parse(response.body).redirect.full === true, 'Redirect after login should be a full page reload.');
     const sessionCookie = response.headers['set-cookie'][0];
     check(sessionCookie.includes('session_id'), 'A session_id cookie should be set on login.');
 
@@ -155,7 +158,9 @@ async function runAuthWorkflowTest(appPath) {
     response = await resultPromise;
     log('Logout response:', response);
     const expiredCookie = response.headers['set-cookie'][0];
-    check(JSON.parse(response.body).redirectUrl === '/login', 'Logout should redirect to login page.');
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ (ответ теперь содержит объект redirect) ---
+    check(JSON.parse(response.body).redirect.url === '/login', 'Logout should redirect to login page.');
+    check(JSON.parse(response.body).redirect.full === true, 'Redirect after logout should be a full page reload.');
     check(expiredCookie.includes('max-age=-1'), 'Logout should set an expired cookie.');
 }
 
@@ -197,16 +202,16 @@ module.exports = {
                             { "if": "context.user && require('bcrypt').compareSync(body.password, context.user.passwordHash)",
                               "then": [
                                 { "auth:login": "context.user" },
-                                { "client:redirect": "'/'" }
+                                // Обновляем шаг, чтобы он соответствовал нововведениям
+                                { "client:redirect": "{ url: '/', full: true }" }
                               ],
                               "else": [{ "client:redirect": "'/login?error=1'" }]
                             }
                         ]
                     },
                     'GET /protected': {
-                        type: 'view', // Сделаем view для теста редиректа
+                        type: 'view',
                         auth: { required: true, failureRedirect: '/login' },
-                        // Для простого теста вернем текст напрямую, а не через рендеринг
                         handler: (req, res) => res.end('Protected Content')
                     },
                     'GET /auth/logout': {
@@ -214,7 +219,8 @@ module.exports = {
                         auth: { required: true },
                         steps: [
                             { "auth:logout": true },
-                            { "client:redirect": "'/login'" }
+                            // Обновляем шаг, чтобы он соответствовал нововведениям
+                            { "client:redirect": "{ url: '/login', full: true }" }
                         ]
                     }
                 }
